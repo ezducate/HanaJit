@@ -1,0 +1,27 @@
+<svg viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="zellij2" width="34" height="34" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="34" height="34" fill="#2B3FC4"/>
+      <path d="M17 1 L33 17 L17 33 L1 17 Z" fill="#E8A020"/>
+      <path d="M17 7 L27 17 L17 27 L7 17 Z" fill="#2B3FC4"/>
+    </pattern>
+  </defs>
+  <!-- Concept 2: Yaz ⵣ as dominant icon, strokes FILLED with zellij tiling -->
+  <g transform="translate(20,6)">
+    <!-- soft background rosette -->
+    <g transform="translate(100,100)" fill="#EAEBF6">
+      <path d="M0 -92 L20 -40 L72 -60 L52 -8 L92 0 L52 8 L72 60 L20 40 L0 92 L-20 40 L-72 60 L-52 8 L-92 0 L-52 -8 L-72 -60 L-20 -40 Z"/>
+    </g>
+    <!-- Yaz ⵣ as three thick bars, filled with zellij -->
+    <g fill="url(#zellij2)" stroke="#1B2559" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+      <!-- vertical bar -->
+      <rect x="88" y="44" width="24" height="112" rx="6"/>
+      <!-- diagonal down-right -->
+      <rect x="88" y="44" width="24" height="112" rx="6" transform="rotate(-55 100 100)"/>
+      <!-- diagonal down-left -->
+      <rect x="88" y="44" width="24" height="112" rx="6" transform="rotate(55 100 100)"/>
+    </g>
+  </g>
+  <text x="120" y="245" text-anchor="middle" font-family="'Noto Naskh Arabic','Amiri',serif" font-size="42" fill="#1B2559" direction="rtl">هانا جيت</text>
+  <text x="120" y="278" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-size="22" letter-spacing="3" fill="#2B3FC4">HANA JIT</text>
+</svg>

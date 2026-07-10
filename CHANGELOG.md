@@ -12,7 +12,7 @@ path. No functional code change; CI is green.
 The CPU-performance and GPU-validation release. 207 tests passing across
 Python 3.10–3.14 on Linux / Windows 11 / macOS Apple Silicon.
 
-### Performance (all measured, all honest)
+### Performance (measured)
 - **float32 arrays** (new): native 32-bit compute — half the memory
   bandwidth, 2x SIMD lanes. With `reduce_reassoc`, **3.24x** the float64
   baseline on a memory-bound reduction, at exact (bounded) f32 precision.
@@ -42,7 +42,7 @@ Python 3.10–3.14 on Linux / Windows 11 / macOS Apple Silicon.
   reductions), each proven equivalent.
 - `evolve_hyper(..., confirmed=True)`: hyper-aggressive fp transforms,
   validated on random probes only, never cached, requires confirmation.
-  Honestly documented as workload-dependent (often a no-op vs safe GA).
+  Documented as workload-dependent (often a no-op vs safe GA).
 
 ### Fixed
 - **Latent F32 arithmetic bug**: all float32 math was computing through

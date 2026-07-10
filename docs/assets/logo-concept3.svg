@@ -1,0 +1,32 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Concept 3: Zellij rosette icon + separate Yaz badge, both scripts -->
+  <g transform="translate(30,14)">
+    <!-- 16-point zellij rosette -->
+    <g transform="translate(70,70)">
+      <path d="M0 -70 L15 -30 L55 -46 L39 -6 L70 0 L39 6 L55 46 L15 30 L0 70 L-15 30 L-55 46 L-39 6 L-70 0 L-39 -6 L-55 -46 L-15 -30 Z"
+            fill="#2B3FC4"/>
+      <path d="M0 -48 L11 -20 L38 -32 L26 -4 L48 0 L26 4 L38 32 L11 20 L0 48 L-11 20 L-38 32 L-26 4 L-48 0 L-26 -4 L-38 -32 L-11 -20 Z"
+            fill="#E8A020"/>
+      <circle r="18" fill="#1B2559"/>
+      <!-- small Yaz in center -->
+      <g stroke="#FAFAF7" stroke-width="5" stroke-linecap="round" fill="none">
+        <line x1="0" y1="-11" x2="0" y2="11"/>
+        <line x1="-9" y1="-6" x2="9" y2="6"/>
+        <line x1="9" y1="-6" x2="-9" y2="6"/>
+      </g>
+    </g>
+    <!-- separate Yaz badge (hexagon zellij tile) -->
+    <g transform="translate(180,70)">
+      <path d="M0 -46 L40 -23 L40 23 L0 46 L-40 23 L-40 -23 Z" fill="#E8A020"/>
+      <path d="M0 -34 L29 -17 L29 17 L0 34 L-29 17 L-29 -17 Z" fill="#2B3FC4"/>
+      <g stroke="#FAFAF7" stroke-width="9" stroke-linecap="round" fill="none">
+        <line x1="0" y1="-22" x2="0" y2="22"/>
+        <line x1="-18" y1="-12" x2="18" y2="12"/>
+        <line x1="18" y1="-12" x2="-18" y2="12"/>
+      </g>
+    </g>
+  </g>
+  <text x="150" y="222" text-anchor="middle" font-family="'Noto Naskh Arabic','Amiri',serif" font-size="44" fill="#1B2559" direction="rtl">هانا جيت</text>
+  <text x="150" y="258" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-size="26" letter-spacing="4" fill="#2B3FC4" font-weight="700">HANA JIT</text>
+  <text x="150" y="284" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-size="13" letter-spacing="2" fill="#5A648C">ⵣ · here I am, compiled</text>
+</svg>

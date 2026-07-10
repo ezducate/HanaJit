@@ -1,0 +1,30 @@
+<svg viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="star1">
+      <path d="M100 12 L124 46 L164 36 L154 76 L188 100 L154 124 L164 164 L124 154 L100 188 L76 154 L36 164 L46 124 L12 100 L46 76 L36 36 L76 46 Z"/>
+    </clipPath>
+  </defs>
+  <!-- Concept 1: Zellij 8-point star tile as icon, Yaz centered inside -->
+  <g transform="translate(20,10)">
+    <!-- outer zellij star -->
+    <path d="M100 12 L124 46 L164 36 L154 76 L188 100 L154 124 L164 164 L124 154 L100 188 L76 154 L36 164 L46 124 L12 100 L46 76 L36 36 L76 46 Z"
+          fill="#2B3FC4"/>
+    <!-- zellij interlace pattern inside, clipped to star -->
+    <g clip-path="url(#star1)" stroke="#E8A020" stroke-width="3" fill="none" opacity="0.55">
+      <path d="M0 50 L200 50 M0 100 L200 100 M0 150 L200 150 M50 0 L50 200 M100 0 L100 200 M150 0 L150 200"/>
+      <path d="M0 0 L200 200 M200 0 L0 200 M100 0 L200 100 L100 200 L0 100 Z"/>
+    </g>
+    <!-- inner octagon frame -->
+    <path d="M100 40 L128 52 L140 80 L140 120 L128 148 L100 160 L72 148 L60 120 L60 80 L72 52 Z"
+          fill="#1B2559" opacity="0.92"/>
+    <!-- Amazigh Yaz ⵣ centered, drawn as bold geometric strokes -->
+    <g stroke="#FAFAF7" stroke-width="11" stroke-linecap="round" fill="none">
+      <line x1="100" y1="60" x2="100" y2="140"/>
+      <line x1="72" y1="74" x2="128" y2="126"/>
+      <line x1="128" y1="74" x2="72" y2="126"/>
+    </g>
+  </g>
+  <!-- Arabic wordmark هانا جيت -->
+  <text x="120" y="245" text-anchor="middle" font-family="'Noto Naskh Arabic','Amiri',serif" font-size="42" fill="#1B2559" direction="rtl">هانا جيت</text>
+  <text x="120" y="278" text-anchor="middle" font-family="'Space Grotesk',sans-serif" font-size="22" letter-spacing="3" fill="#2B3FC4">HANA JIT</text>
+</svg>

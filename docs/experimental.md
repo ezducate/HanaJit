@@ -1,7 +1,7 @@
 # Experimental modes
 
-Two opt-in, CPU-only, experimental features. Both are honest about their
-limits — read these notes before relying on either.
+Two opt-in, CPU-only, experimental features. Their limits are documented
+below; read these notes before relying on either.
 
 ## `@jit(rewrite=True)` — structural rewrites
 
@@ -14,7 +14,7 @@ Current rules:
   becomes `acc += a*(n*(n-1)//2) + b*n` — an O(1) closed form, bit-exact in
   integer arithmetic.
 
-**Honest scope.** This is *not* general "understand and rewrite the code" —
+**Scope.** This is *not* general "understand and rewrite the code" —
 that is program equivalence, which is undecidable. It is a pattern library.
 And our own LLVM -O3 backend *already* closes simple affine integer sums,
 so for those the speed benefit over plain `@jit` is ~1x. The rewrite pass
@@ -22,7 +22,7 @@ earns its keep by (1) guaranteeing the O(1) form regardless of whether the
 optimizer spots it, (2) providing a place to add rewrites LLVM does *not*
 do (closed forms of more complex reductions, algebraic identities), and (3)
 being portable across LLVM versions/opt levels. It is most dramatic vs
-CPython (millions-x on a large closed-form sum), which is the honest
+CPython (millions-x on a large closed-form sum), which is the appropriate
 baseline to quote.
 
 ## `evolve_hyper(...)` — hyper-aggressive optimization
@@ -56,7 +56,7 @@ default).
   code.** A superoptimizer that does not guarantee its output has no place
   in pipelines where a wrong answer causes harm.
 
-### Honest performance note
+### Performance note
 
 The benefit is hardware- and workload-dependent. On kernels where the
 aggressive flags unlock SIMD reduction the safe path couldn't take, hyper

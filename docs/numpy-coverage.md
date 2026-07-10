@@ -1,4 +1,4 @@
-# NumPy coverage — the honest inventory
+# NumPy coverage
 
 Every entry below is verified by the test suite or the probe script; nothing
 is aspirational. Unsupported constructs never break — they fall back to the
@@ -32,7 +32,7 @@ Whole-array arithmetic (`a * b`, `a + 1`); matmul `@`; 2-D block slices
 runtime, numba's NRT equivalent); boolean/fancy indexing; broadcasting;
 dtypes beyond f64/i64; ndim ≥ 3; everything else in numpy's API.
 
-## The scoreboard, honestly
+## Coverage summary
 
 Roughly **20 numpy API surface points** compile (arrays, ~8 indexing/view
 forms, 5 reductions, 9 math functions, shape/len/reshape/ravel) out of a
