@@ -97,8 +97,14 @@ if art:
     print("\n".join(text.splitlines()[:5]))
 
 # --- FPGA: HLS export ---
-ll, tcl = fib.export_fpga("/tmp/fib_fpga")
-print(f"\nFPGA export: {ll}, {tcl}")
+import os
+import tempfile
+try:
+    _fpga_dir = tempfile.mkdtemp(prefix="hanajit_fpga_")
+    ll, tcl = fib.export_fpga(os.path.join(_fpga_dir, "fib_fpga"))
+    print(f"\nFPGA export: {ll}, {tcl}")
+except Exception as e:
+    print(f"\nFPGA export skipped: {e}")
 
 # --- multithreading: nogil kernels ---
 import threading
