@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+venv/
+*.so
+.DS_Store
+# stray doctor reports at root (keep the curated ones in reports/)
+/hanajit_report_*.md

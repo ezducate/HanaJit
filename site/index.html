@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HanaJit — compiled right here</title>
+<style>
+  :root{--blue:#2B3FC4;--saffron:#E8A020;--ink:#1B2559;--muted:#5A648C;
+        --paper:#FAFAF7;--line:#E4E2D8}
+  *{box-sizing:border-box;margin:0}
+  body{font-family:"Space Grotesk","Avenir Next",Futura,system-ui,sans-serif;
+       background:var(--paper);color:var(--ink);line-height:1.55}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px}
+  header{padding:72px 0 48px;text-align:center}
+  .mark{width:96px;height:96px;margin:0 auto 20px}
+  h1{font-size:2.6rem;letter-spacing:.5px}
+  h1 .jit{color:var(--blue)}
+  .tag{color:var(--muted);margin-top:8px;font-size:1.05rem}
+  .pip{display:inline-block;margin-top:22px;background:var(--ink);color:#fff;
+       font-family:ui-monospace,Menlo,monospace;padding:10px 22px;border-radius:8px}
+  .band{height:14px;background:
+    repeating-linear-gradient(90deg,var(--blue) 0 14px,transparent 14px 22px,
+    var(--saffron) 22px 36px,transparent 36px 44px)}
+  section{padding:44px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:1.35rem;margin-bottom:14px}
+  .nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px}
+  .num b{display:block;font-size:1.9rem;color:var(--blue)}
+  .num span{color:var(--muted);font-size:.92rem}
+  pre{background:#101528;color:#EDEFF7;padding:18px;border-radius:10px;
+      overflow-x:auto;font-size:.9rem;line-height:1.5}
+  .kw{color:#8FA3FF}.st{color:#F2C57C}.cm{color:#7C88B0}
+  p{margin:10px 0;color:var(--ink)}
+  .quiet{color:var(--muted);font-size:.92rem}
+  table{width:100%;border-collapse:collapse;font-size:.92rem;margin-top:10px}
+  td,th{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:600}
+  footer{padding:36px 0;color:var(--muted);font-size:.9rem;text-align:center}
+  a{color:var(--blue)}
+  .ezlogo{display:inline-block;width:32px;height:32px;border-radius:7px;
+    background:url(data:image/png;base64,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) center/cover no-repeat;
+    vertical-align:middle}
+  .topbar{background:#fff;border-bottom:1px solid var(--line)}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;
+    padding-top:10px;padding-bottom:10px}
+  .topbar a{display:inline-flex;align-items:center;gap:10px;
+    text-decoration:none;color:var(--ink);font-size:.95rem}
+  .topbar .cta{background:var(--blue);color:#fff;padding:7px 16px;
+    border-radius:8px;font-weight:600}
+  h3{font-size:1.08rem;margin:30px 0 8px;color:var(--ink)}
+  .dg{background:#fff;border:1px solid var(--line);border-radius:12px;
+      padding:14px;margin:14px 0}
+  .dg svg{width:100%;height:auto;display:block}
+  .dg figcaption{color:var(--muted);font-size:.85rem;margin-top:8px;
+      text-align:center}
+  .spec{font-size:.88rem}
+  .spec td:first-child{font-family:ui-monospace,Menlo,monospace;
+      white-space:nowrap;color:var(--blue)}
+  .callout{border-left:4px solid var(--saffron);background:#fff;
+      padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .warn{border-left:4px solid #C44B3F;background:#FDECEC;padding:12px 16px;
+      border-radius:0 10px 10px 0;margin:14px 0}
+  .warn strong{color:#C44B3F}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap">
+  <a href="https://ezducate.ai">
+    <span class="ezlogo" role="img" aria-label="EZducate"></span>
+    <span>by <strong>EZducate</strong> — AI for special education</span>
+  </a>
+  <a class="cta" href="https://ezducate.ai">Visit EZducate</a>
+</div></div>
+<header class="wrap">
+  <svg class="mark" viewBox="0 0 128 128" aria-label="HanaJit mark">
+    <path fill="#2B3FC4" fill-rule="evenodd" d="M 64 7.4 L 120.6 64 L 64 120.6 L 7.4 64 Z
+      M 79.0 57.8 L 79.0 70.2 L 70.2 79.0 L 57.8 79.0 L 49.0 70.2 L 49.0 57.8 L 57.8 49.0 L 70.2 49.0 Z"/>
+    <rect x="24" y="24" width="80" height="80" fill="none" stroke="#E8A020" stroke-width="5.5"/>
+  </svg>
+  <h1>Hana<span class="jit">Jit</span></h1>
+  <p class="tag">"Ha ana" — Moroccan Darija for <em>here I am</em>: the JIT announcing
+  itself on whatever machine you run it on. Falls back to the interpreter for
+  everything it can't compile, so the whole Python ecosystem keeps working.</p>
+  <div class="pip">pip install hanajit</div>
+</header>
+<div class="band"></div>
+
+<section class="wrap">
+  <div class="nums">
+    <div class="num"><b>55x</b><span>geomean over CPython, 52 verified workloads</span></div>
+    <div class="num"><b>1.19x</b><span>vs fastmath-numba, 15-kernel four-way bench</span></div>
+    <div class="num"><b>~60 ns</b><span>per call — cheaper than a plain Python function</span></div>
+    <div class="num"><b>8.5x</b><span>faster warm start than numba (disk cache)</span></div>
+  </div>
+  <p class="quiet">Every number regenerates from <code>benchmarks/</code>; results are
+  cross-verified against CPython and numba before timing. Losing rows are kept in on purpose.</p>
+</section>
+
+<section class="wrap">
+  <h2>Write loops. Get native code. Keep Python.</h2>
+<pre><code><span class="kw">from</span> hanajit <span class="kw">import</span> jit, prange
+
+<span class="kw">@jit</span>(cache=<span class="kw">True</span>, workers=<span class="st">8</span>)
+<span class="kw">def</span> energy(x):
+    s = <span class="st">0.0</span>
+    <span class="kw">for</span> i <span class="kw">in</span> prange(<span class="kw">len</span>(x)):      <span class="cm"># auto-parallel across cores</span>
+        s += x[i] * x[i]
+    <span class="kw">return</span> np.sqrt(s / <span class="kw">len</span>(x))     <span class="cm"># scalar np.* compiles too</span>
+
+energy(a)                            <span class="cm"># numpy arrays pass directly</span>
+report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled code</span></code></pre>
+</section>
+
+<section class="wrap">
+  <h2>What's inside</h2>
+  <p><strong>CPython's own parser, LLVM's codegen.</strong> Lazy per-type specialization;
+  unsupported code falls back to the interpreter with one warning — nothing ever breaks.</p>
+  <p><strong>Dispatch faster than Python itself.</strong> A JITed vectorcall dispatcher makes
+  calling a compiled function cheaper than calling an empty Python function.</p>
+  <p><strong>NumPy where it counts.</strong> 1-D/2-D arrays, slicing (strided too), negative
+  indexing, reshape/ravel views, compiled reductions, scipy LowLevelCallable — and an honest
+  <a href="../docs/numpy-coverage.md">coverage inventory</a> of what falls back.</p>
+  <p><strong>Evolutionary post-optimization.</strong> A genetic algorithm searches
+  semantics-preserving compilation strategies per kernel: up to 2.7x beyond -O3 on
+  reductions and stencils, validated for equivalence, persisted to the disk cache.</p>
+  <p><strong>Every target.</strong> CPU (Linux/Windows/Apple Silicon), CUDA PTX, AMD GCN,
+  Intel SPIR-V, Apple Metal source, FPGA HLS export — with <code>target="auto"</code>
+  picking per kernel on the current machine.</p>
+</section>
+
+<section class="wrap">
+  <h2>Four-way, verified</h2>
+  <table>
+    <tr><th>kernel</th><th>CPython</th><th>numba*</th><th>HanaJit</th><th>HanaJit +GA</th></tr>
+    <tr><td>fp reduction 2M</td><td>678 ms</td><td>1.06 ms</td><td>1.48 ms</td><td><b>0.60 ms</b></td></tr>
+    <tr><td>3-pt stencil 2M</td><td>942 ms</td><td>1.45 ms</td><td>1.55 ms</td><td><b>0.66 ms</b></td></tr>
+    <tr><td>fib(27) recursion</td><td>21.0 ms</td><td>1.20 ms</td><td>0.71 ms</td><td><b>0.61 ms</b></td></tr>
+    <tr><td>collatz to 30k</td><td>200 ms</td><td>4.04 ms</td><td>4.02 ms</td><td>4.00 ms</td></tr>
+  </table>
+  <p class="quiet">*numba given fastmath wherever the GA gets it. Full 15-row table in
+  <code>benchmarks/RESULTS-EVOLVE.md</code>.</p>
+</section>
+
+
+<div class="band"></div>
+
+<section class="wrap" id="how">
+  <h2>How HanaJit works — nothing hidden</h2>
+  <p>One IR, many machines: CPython&rsquo;s own parser, fixpoint type
+  inference, one LLVM IR module — then retargeted to your exact CPU, four
+  GPU code formats, or FPGA HLS export. Anything unprovable falls back to
+  the interpreter with one warning. ~3,000 readable lines; every detail
+  below lives in the source.</p>
+
+  <figure class="dg">
+  <svg viewBox="0 0 900 470" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#5A648C"/></marker>
+      <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#2B3FC4"/></marker>
+      <marker id="ars" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#E8A020"/></marker>
+    </defs>
+    <style>
+      .bx{fill:#fff;stroke:#1B2559;stroke-width:1.4;rx:9}
+      .bb{fill:#2B3FC4;stroke:none;rx:9}.bs{fill:#FDF3E1;stroke:#E8A020;stroke-width:1.4;rx:9}
+      .t{font-size:13px;fill:#1B2559}.tw{font-size:13px;fill:#fff;font-weight:600}
+      .ts{font-size:11px;fill:#5A648C}.tm{font-size:11px;font-family:ui-monospace,Menlo,monospace;fill:#2B3FC4}
+      .ln{stroke:#5A648C;stroke-width:1.4;fill:none;marker-end:url(#ar)}
+      .lb{stroke:#2B3FC4;stroke-width:1.6;fill:none;marker-end:url(#arb)}
+      .ls{stroke:#E8A020;stroke-width:1.6;fill:none;marker-end:url(#ars);stroke-dasharray:5 4}
+    </style>
+    <!-- stage 1: frontend -->
+    <rect class="bx" x="10" y="24" width="128" height="52" rx="9"/>
+    <text class="t" x="74" y="46" text-anchor="middle">Python source</text>
+    <text class="ts" x="74" y="62" text-anchor="middle">@jit def f(...)</text>
+    <rect class="bx" x="172" y="24" width="128" height="52" rx="9"/>
+    <text class="t" x="236" y="46" text-anchor="middle">CPython parser</text>
+    <text class="tm" x="236" y="62" text-anchor="middle">inspect + ast.parse</text>
+    <rect class="bx" x="334" y="24" width="140" height="52" rx="9"/>
+    <text class="t" x="404" y="46" text-anchor="middle">TypeInferencer</text>
+    <text class="ts" x="404" y="62" text-anchor="middle">fixpoint, per signature</text>
+    <rect class="bb" x="508" y="24" width="140" height="52" rx="9"/>
+    <text class="tw" x="578" y="46" text-anchor="middle">CodeGen</text>
+    <text class="tw" x="578" y="62" text-anchor="middle" font-weight="400" font-size="11">llvmlite → LLVM IR</text>
+    <line class="ln" x1="138" y1="50" x2="168" y2="50"/>
+    <line class="ln" x1="300" y1="50" x2="330" y2="50"/>
+    <line class="ln" x1="474" y1="50" x2="504" y2="50"/>
+    <!-- fallback -->
+    <rect class="bs" x="700" y="24" width="188" height="52" rx="9"/>
+    <text class="t" x="794" y="46" text-anchor="middle">interpreter fallback</text>
+    <text class="ts" x="794" y="62" text-anchor="middle">UnsupportedError → 1 warning</text>
+    <path class="ls" d="M404 24 C404 2, 640 8, 696 40"/>
+    <path class="ls" d="M578 24 C590 10, 650 22, 696 56"/>
+    <!-- one IR hub -->
+    <rect class="bx" x="508" y="118" width="140" height="40" rx="9" stroke="#2B3FC4"/>
+    <text class="tm" x="578" y="143" text-anchor="middle">one LLVM IR module</text>
+    <line class="lb" x1="578" y1="76" x2="578" y2="114"/>
+    <!-- CPU branch -->
+    <rect class="bb" x="26" y="212" width="240" height="118" rx="10"/>
+    <text class="tw" x="146" y="236" text-anchor="middle">CPU (this machine)</text>
+    <text class="tw" x="146" y="257" text-anchor="middle" font-weight="400" font-size="11">host-feature TargetMachine (AVX/NEON)</text>
+    <text class="tw" x="146" y="274" text-anchor="middle" font-weight="400" font-size="11">pass pipeline -O3 · new/legacy PM</text>
+    <text class="tw" x="146" y="291" text-anchor="middle" font-weight="400" font-size="11">MCJIT → native fn pointer</text>
+    <text class="tw" x="146" y="308" text-anchor="middle" font-weight="400" font-size="11">vectorcall / fastcall install</text>
+    <path class="lb" d="M508 150 C330 168, 200 178, 150 208"/>
+    <!-- GPU branch -->
+    <rect class="bx" x="306" y="212" width="250" height="118" rx="10"/>
+    <text class="t" x="431" y="236" text-anchor="middle" font-weight="600">GPU retarget (same IR)</text>
+    <text class="ts" x="431" y="257" text-anchor="middle">NVPTX → CUDA PTX</text>
+    <text class="ts" x="431" y="274" text-anchor="middle">AMDGPU → GCN (gfx90a)</text>
+    <text class="ts" x="431" y="291" text-anchor="middle">SPIR-V → Intel Level Zero</text>
+    <text class="ts" x="431" y="308" text-anchor="middle">Metal: AST → MSL transpiler</text>
+    <path class="lb" d="M560 158 C520 176, 480 188, 450 208"/>
+    <!-- FPGA branch -->
+    <rect class="bx" x="596" y="212" width="140" height="118" rx="10"/>
+    <text class="t" x="666" y="236" text-anchor="middle" font-weight="600">FPGA export</text>
+    <text class="ts" x="666" y="260" text-anchor="middle">LLVM IR +</text>
+    <text class="ts" x="666" y="276" text-anchor="middle">Vitis HLS TCL</text>
+    <path class="lb" d="M600 158 C630 176, 650 188, 662 208"/>
+    <!-- cross codegen -->
+    <rect class="bx" x="766" y="212" width="122" height="118" rx="10"/>
+    <text class="t" x="827" y="236" text-anchor="middle" font-weight="600">cross emit</text>
+    <text class="ts" x="827" y="260" text-anchor="middle">arm64 / x86_64</text>
+    <text class="ts" x="827" y="276" text-anchor="middle">object or asm</text>
+    <path class="lb" d="M648 150 C740 166, 800 184, 824 208"/>
+    <!-- cache -->
+    <rect class="bs" x="26" y="384" width="240" height="62" rx="10"/>
+    <text class="t" x="146" y="408" text-anchor="middle" font-weight="600">disk object cache</text>
+    <text class="ts" x="146" y="426" text-anchor="middle">~/.cache/hanajit · warm start 79 ms</text>
+    <path class="ls" d="M146 330 L146 380"/>
+    <path class="ls" d="M186 380 L186 334"/>
+    <!-- GA -->
+    <rect class="bs" x="306" y="384" width="250" height="62" rx="10"/>
+    <text class="t" x="431" y="408" text-anchor="middle" font-weight="600">evolve() — GA post-optimizer</text>
+    <text class="ts" x="431" y="426" text-anchor="middle">re-compiles winners · persists to cache</text>
+    <path class="ls" d="M410 380 L410 334"/>
+    <path class="ls" d="M452 334 L452 380"/>
+    <line class="ls" x1="302" y1="412" x2="272" y2="412"/>
+  </svg>
+  <figcaption>The whole machine: parse once, type per signature, lower to one
+  LLVM IR module, then retarget. Saffron paths are the safety and feedback
+  loops: interpreter fallback, disk cache, and the genetic optimizer.</figcaption>
+  </figure>
+
+  <h3>1 · Frontend: CPython&rsquo;s parser, lazy specialization, honest fallback</h3>
+  <p>No custom parser, no bytecode tricks: <code>ast.parse</code> on the
+  real source, lazy per-signature specialization, fixpoint inference over a
+  small lattice. Outside the lattice → transparent interpreter fallback.</p>
+  <table class="spec">
+    <tr><th>type</th><th>meaning / ABI</th></tr>
+    <tr><td>i64, f64, bool</td><td>scalars; Python semantics for <code>//</code> and <code>%</code> on negatives (extra select vs C — we pay it for correctness)</td></tr>
+    <tr><td>f64[1c] / f64[1s]</td><td>1-D array, contiguous <code>(ptr, n)</code> / strided <code>(ptr, n, stride)</code></td></tr>
+    <tr><td>f64[2c] / f64[2s]</td><td>2-D C-contiguous <code>(ptr, s0, s1)</code> / strided <code>(ptr, s0, s1, st0, st1)</code> — how <code>m.T</code> is free</td></tr>
+    <tr><td>~f64, ~i64, ~bool</td><td>lazy fused expression: a compile-time element <em>generator</em>, never a buffer</td></tr>
+    <tr><td>f64*, i64*</td><td>raw pointers — the GPU kernel ABI</td></tr>
+  </table>
+
+  <h3>2 · The fusion engine: numpy expressions with zero temporaries</h3>
+  <p>Array expressions compile to element <em>generators</em> that compose
+  — ufuncs, comparisons, <code>where/clip</code>, even virtual
+  <code>arange/linspace</code> — and fuse into one loop at the consuming
+  reduction or store. Zero temporaries, structurally: no numba flag closes
+  the gap.</p>
+  <figure class="dg">
+  <svg viewBox="0 0 900 240" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <style>
+      .t2{font-size:12.5px;fill:#1B2559}.m2{font-size:11.5px;font-family:ui-monospace,Menlo,monospace;fill:#1B2559}
+      .mut{font-size:11px;fill:#5A648C}.bad{fill:#FDECEC;stroke:#C44B3F;stroke-width:1.2}
+      .good{fill:#EDF0FF;stroke:#2B3FC4;stroke-width:1.4}
+    </style>
+    <text class="t2" x="225" y="22" text-anchor="middle" font-weight="600">numpy / numba: materialize each step</text>
+    <rect class="bad" x="30" y="36" width="120" height="34" rx="7"/><text class="m2" x="90" y="57" text-anchor="middle">t1 = exp(-a*a)</text>
+    <rect class="bad" x="165" y="36" width="120" height="34" rx="7"/><text class="m2" x="225" y="57" text-anchor="middle">t2 = t1 * b</text>
+    <rect class="bad" x="300" y="36" width="120" height="34" rx="7"/><text class="m2" x="360" y="57" text-anchor="middle">t3 = where(...)</text>
+    <text class="mut" x="225" y="94" text-anchor="middle">3 × 16 MB temporaries · 6 memory passes · then sum</text>
+    <line x1="450" y1="20" x2="450" y2="220" stroke="#E4E2D8"/>
+    <text class="t2" x="675" y="22" text-anchor="middle" font-weight="600">hanajit: compose generators, emit one loop</text>
+    <rect class="good" x="500" y="36" width="350" height="120" rx="9"/>
+    <text class="m2" x="675" y="60" text-anchor="middle">for i in 0..n:            # ONE loop</text>
+    <text class="m2" x="675" y="80" text-anchor="middle">  s += exp(-a[i]*a[i])*b[i]</text>
+    <text class="m2" x="675" y="100" text-anchor="middle">     + select(a[i]&gt;0, a[i], 2a[i])</text>
+    <text class="m2" x="675" y="120" text-anchor="middle">     - clamp(b[i], .2, 1.5)</text>
+    <text class="mut" x="675" y="146" text-anchor="middle">0 temporaries · 1 memory pass · SIMD-friendly</text>
+    <text class="t2" x="225" y="186" text-anchor="middle">58.6 ms (numpy) · 49.6 ms (numba)</text>
+    <text class="t2" x="675" y="186" text-anchor="middle" fill="#2B3FC4" font-weight="600">14.3 ms — 3.8x / 4.2x faster, bit-verified</text>
+    <text class="mut" x="450" y="222" text-anchor="middle">2M-element benchmark, benchmarks/RESULTS-FOURWAY.md — results asserted equal before timing</text>
+  </svg>
+  <figcaption>Deforestation for numpy: expressions become element generators,
+  fused into their consumer. Allocation is impossible by construction — which
+  is also how the design sidesteps needing a garbage-collected array runtime.</figcaption>
+  </figure>
+</section>
+
+
+<section class="wrap" id="dispatch">
+  <h3>3 · Dispatch: three tiers, 20–53 ns to native</h3>
+  <p>The dispatcher is itself LLVM-compiled: on 3.12+ every jitted function
+  is a <code>HanaFunction</code> whose vectorcall slot runs generated
+  machine code — type check, unbox, kernel, box. New specializations
+  install via one atomic pointer swap.</p>
+  <figure class="dg">
+  <svg viewBox="0 0 900 210" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5A648C"/></marker></defs>
+    <style>.t3{font-size:12.5px;fill:#1B2559}.s3{font-size:11px;fill:#5A648C}
+      .n3{font-size:12px;fill:#2B3FC4;font-weight:600}
+      .b3{fill:#fff;stroke:#1B2559;stroke-width:1.3}.l3{stroke:#5A648C;stroke-width:1.3;fill:none;marker-end:url(#a2)}</style>
+    <rect class="b3" x="14" y="70" width="120" height="52" rx="9"/>
+    <text class="t3" x="74" y="92" text-anchor="middle">f(3, 2.5)</text>
+    <text class="s3" x="74" y="108" text-anchor="middle">any call site</text>
+    <rect class="b3" x="178" y="42" width="212" height="108" rx="10" stroke="#2B3FC4" stroke-width="1.8"/>
+    <text class="t3" x="284" y="66" text-anchor="middle" font-weight="600">Tier 1 — vectorcall</text>
+    <text class="s3" x="284" y="86" text-anchor="middle">LLVM-generated dispatcher:</text>
+    <text class="s3" x="284" y="102" text-anchor="middle">type-ptr chain → unbox → kernel → box</text>
+    <text class="n3" x="284" y="126" text-anchor="middle">20 ns (M4) · 48–53 ns (x86)</text>
+    <rect class="b3" x="434" y="42" width="200" height="108" rx="10"/>
+    <text class="t3" x="534" y="66" text-anchor="middle" font-weight="600">Tier 2 — fastcall builtin</text>
+    <text class="s3" x="534" y="86" text-anchor="middle">METH_FASTCALL wrapper,</text>
+    <text class="s3" x="534" y="102" text-anchor="middle">per-signature via .specialize()</text>
+    <text class="n3" x="534" y="126" text-anchor="middle">~35 ns, zero-arg-tuple</text>
+    <rect class="b3" x="678" y="42" width="208" height="108" rx="10"/>
+    <text class="t3" x="782" y="66" text-anchor="middle" font-weight="600">Tier 3 — Python dispatcher</text>
+    <text class="s3" x="782" y="86" text-anchor="middle">&lt;3.12, new signatures,</text>
+    <text class="s3" x="782" y="102" text-anchor="middle">arrays’ first call, fallback</text>
+    <text class="n3" x="782" y="126" text-anchor="middle">compiles, then promotes ↑</text>
+    <line class="l3" x1="134" y1="96" x2="174" y2="96"/>
+    <line class="l3" x1="390" y1="96" x2="430" y2="96"/>
+    <line class="l3" x1="634" y1="96" x2="674" y2="96"/>
+    <text class="s3" x="450" y="180" text-anchor="middle">miss → next tier; every tier promotes results back left. numba’s dispatcher: ~245 ns — a plain Python function call is ~100 ns.</text>
+  </svg>
+  <figcaption>The dispatcher is compiled by the same backend it dispatches to.
+  Arrays use dtype+ndim+layout hybrid keys, so a matrix and its transpose can
+  never collide on one compiled caller.</figcaption>
+  </figure>
+
+  <h3>4 · One IR, distant machines</h3>
+  <p>CPU: a TargetMachine built from your exact host features, -O3, MCJIT.
+  The same IR is then re-triple&rsquo;d for NVPTX (PTX), AMDGPU (GCN) and
+  SPIR-V; Metal — which has no LLVM target — gets an AST&rarr;MSL
+  transpiler instead. FPGA has no instruction stream at all, so it&rsquo;s an
+  <em>export</em>: annotated IR + a Vitis HLS script, for the HLS/CIRCT
+  flows that synthesize loops into pipelined circuits.
+  <code>target="auto"</code> probes driver libraries per-kernel.</p>
+  <table class="spec">
+    <tr><th>target</th><th>emission</th><th>verified by</th></tr>
+    <tr><td>cpu</td><td>host-tuned object via MCJIT</td><td>135 tests × Linux/Windows/macOS</td></tr>
+    <tr><td>cuda</td><td>NVPTX → PTX (sm_80)</td><td>doctor: PTX emission ✓ (ptxas optional)</td></tr>
+    <tr><td>amd</td><td>AMDGPU → GCN gfx90a</td><td>doctor ✓ on all three platforms</td></tr>
+    <tr><td>intel</td><td>SPIR-V for Level Zero</td><td>doctor ✓ (thread intrinsics roadmap)</td></tr>
+    <tr><td>metal</td><td>AST → MSL source</td><td>real <code>xcrun metal</code> → AIR on M4 ✓</td></tr>
+    <tr><td>fpga</td><td>IR + Vitis HLS TCL</td><td>export path tested</td></tr>
+  </table>
+
+  <h3>5 · Caching: compile once per machine, ever</h3>
+  <p><code>cache=True</code> stores the finished <em>object file</em>,
+  keyed on source + signature + host CPU + flags + versions. Warm start
+  loads machine code directly: 79&nbsp;ms vs numba&rsquo;s 675&nbsp;ms. Atomic
+  writes — and writable by the optimizer below.</p>
+
+  <h3>6 · Multithreading: release the GIL, then use the cores</h3>
+  <p><code>nogil=True</code> releases the GIL around the kernel only;
+  <code>prange</code> fans chunks across workers; <code>pmap</code>
+  parallelizes call batches. Measured: 1.78x on 2 workers, 3.6x on 10 M4
+  cores — memory bandwidth is the honest ceiling. And
+  <code>reduce_reassoc=True</code> reaches <strong>numpy-class reduction
+  speed</strong> (1.58x on a 20M sum, matching numpy&rsquo;s GB/s) by
+  vectorizing accumulators with parallel SIMD lanes — reassociation only,
+  no global fastmath, integers bit-exact. Pass <strong>float32
+  arrays</strong> and it compiles native 32-bit paths — half the bytes,
+  double the SIMD lanes: <strong>2.87x</strong> the float64 baseline on a
+  memory-bound reduction, at exact (bounded) f32 precision.</p>
+
+  <h3>7 · Zero-overhead helpers &amp; auto-parallel</h3>
+  <p>Two ergonomics borrowed from Taichi&rsquo;s kernel model — with no DSL.
+  A small <code>@jit</code> helper called from another <code>@jit</code>
+  function is <em>inlined at the AST level</em> before codegen, so
+  cross-function calls become in-line arithmetic the optimizer and fusion
+  engine see straight through. And <code>@jit(parallel=True)</code> promotes
+  the outermost <code>for i in range(n)</code> to a multithreaded
+  <code>prange</code> — an ordinary Python loop, now running on every core.
+  Both are pure tree rewrites on the AST <code>ast.parse</code> already
+  produced; recursion and non-straight-line helpers safely stay as calls.</p>
+  <figure class="dg">
+  <svg viewBox="0 0 900 150" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2B3FC4"/></marker></defs>
+    <style>.tt{font-size:11.5px;font-family:ui-monospace,Menlo,monospace;fill:#1B2559}
+      .cap{font-size:11px;fill:#5A648C}.bg{fill:#EDF0FF;stroke:#2B3FC4;stroke-width:1.4}
+      .bn{fill:#fff;stroke:#1B2559;stroke-width:1.2}</style>
+    <rect class="bn" x="20" y="30" width="250" height="90" rx="9"/>
+    <text class="cap" x="145" y="26" text-anchor="middle">you write</text>
+    <text class="tt" x="34" y="56">@jit def sq(x): return x*x</text>
+    <text class="tt" x="34" y="80">@jit def f(a):</text>
+    <text class="tt" x="34" y="100">    return sq(a)+sq(a+1)</text>
+    <line x1="290" y1="75" x2="340" y2="75" stroke="#2B3FC4" stroke-width="1.6" marker-end="url(#a6)"/>
+    <text class="cap" x="315" y="66" text-anchor="middle">inline</text>
+    <rect class="bg" x="356" y="30" width="270" height="90" rx="9"/>
+    <text class="cap" x="491" y="26" text-anchor="middle">compiler sees</text>
+    <text class="tt" x="370" y="66">def f(a):</text>
+    <text class="tt" x="370" y="90">  return a*a + (a+1)*(a+1)</text>
+    <text class="tt" x="370" y="110" fill="#2B3FC4"># one kernel, no call, no dispatch</text>
+    <rect class="bg" x="666" y="30" width="214" height="90" rx="9"/>
+    <text class="cap" x="773" y="26" text-anchor="middle">parallel=True</text>
+    <text class="tt" x="680" y="60">for i in range(n):</text>
+    <text class="tt" x="695" y="82" fill="#2B3FC4">→ prange, chunked</text>
+    <text class="cap" x="773" y="104" text-anchor="middle">GIL released · 3.6x on 10 cores</text>
+  </svg>
+  <figcaption>Helpers inline away; the outer loop parallelizes. Both are
+  AST rewrites — no new syntax, and results are verified identical to the
+  serial / non-inlined version before any speed claim.</figcaption>
+  </figure>
+
+  <h3>8 · Experimental: rewrites &amp; hyper-aggressive mode</h3>
+  <p>Two opt-in, CPU-only experiments, both documented with their limits.
+  <strong>Structural rewrite</strong> (<code>@jit(rewrite=True)</code>) is a
+  library of pattern-matched algebraic transforms — e.g. a loop summing an
+  affine series collapses to its closed form <code>a&middot;n(n-1)/2 +
+  b&middot;n</code>, bit-exact. It is a finite pattern library, not general
+  program understanding (that is undecidable), and honestly our -O3 already
+  closes the simplest of these — its value is a guaranteed O(1) form plus a
+  home for rewrites LLVM misses.</p>
+  <div class="warn">
+    <p><strong>Hyper-aggressive mode</strong> (<code>evolve_hyper(args,
+    confirmed=True)</code>) evolves <em>unsafe</em> fp transforms —
+    reassociation, FMA, reciprocals, approximate functions — keeping
+    whatever is fastest that matches on a <em>large random probe suite</em>.
+    <strong>The result may be wrong on untested inputs.</strong> It requires
+    explicit confirmation, is never cached, is CPU-only, never installs a
+    regression, and must never touch safety-critical code. A superoptimizer
+    that doesn&rsquo;t guarantee its output is a power tool with a real
+    edge — labelled as such.</p>
+  </div>
+
+  <h3>9 · The genetic optimizer: evolution above LLVM</h3>
+  <p><code>f.evolve(args)</code> evolves <em>compilation strategy</em>, not
+  code: nine genes over pipeline knobs, per-loop unroll/vector-width
+  metadata, and opt-in fastmath. Every gene is a semantics-preserving LLVM
+  transform — <strong>equivalence by construction</strong>, differentially
+  gated anyway. Fitness = wall time on your machine.</p>
+  <figure class="dg">
+  <svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2B3FC4"/></marker>
+    <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#E8A020"/></marker></defs>
+    <style>.t4{font-size:12.5px;fill:#1B2559}.s4{font-size:10.5px;fill:#5A648C}
+      .b4{fill:#fff;stroke:#1B2559;stroke-width:1.3}.g4{fill:#EDF0FF;stroke:#2B3FC4;stroke-width:1.5}
+      .l4{stroke:#2B3FC4;stroke-width:1.5;fill:none;marker-end:url(#a4)}
+      .l5{stroke:#E8A020;stroke-width:1.5;fill:none;marker-end:url(#a5)}</style>
+    <rect class="b4" x="16" y="30" width="150" height="58" rx="9"/>
+    <text class="t4" x="91" y="52" text-anchor="middle" font-weight="600">population (10)</text>
+    <text class="s4" x="91" y="70" text-anchor="middle">baseline + random genomes</text>
+    <rect class="b4" x="206" y="30" width="150" height="58" rx="9"/>
+    <text class="t4" x="281" y="52" text-anchor="middle" font-weight="600">compile candidate</text>
+    <text class="s4" x="281" y="70" text-anchor="middle">loop-md + pipeline knobs, MCJIT</text>
+    <rect class="g4" x="396" y="30" width="160" height="58" rx="9"/>
+    <text class="t4" x="476" y="52" text-anchor="middle" font-weight="600">equivalence gate</text>
+    <text class="s4" x="476" y="70" text-anchor="middle">== baseline on probes (1e-9 if fm)</text>
+    <rect class="b4" x="596" y="30" width="130" height="58" rx="9"/>
+    <text class="t4" x="661" y="52" text-anchor="middle" font-weight="600">time it</text>
+    <text class="s4" x="661" y="70" text-anchor="middle">best-of-reps, memoized</text>
+    <rect class="b4" x="766" y="30" width="122" height="58" rx="9"/>
+    <text class="t4" x="827" y="52" text-anchor="middle" font-weight="600">select · cross</text>
+    <text class="s4" x="827" y="70" text-anchor="middle">elite ¼ + mutation</text>
+    <line class="l4" x1="166" y1="59" x2="202" y2="59"/>
+    <line class="l4" x1="356" y1="59" x2="392" y2="59"/>
+    <line class="l4" x1="556" y1="59" x2="592" y2="59"/>
+    <line class="l4" x1="726" y1="59" x2="762" y2="59"/>
+    <path class="l4" d="M827 88 C827 130, 300 140, 281 92"/>
+    <text class="s4" x="560" y="128" text-anchor="middle">next generation · early-stop after 2 stagnant · top-3 finalists re-measured</text>
+    <path class="l5" d="M476 88 L476 150"/>
+    <text class="s4" x="476" y="166" text-anchor="middle" fill="#C44B3F">fails gate → discarded, never timed</text>
+    <rect class="g4" x="200" y="186" width="240" height="50" rx="9"/>
+    <text class="t4" x="320" y="207" text-anchor="middle" font-weight="600">install only if &gt;0.5% faster</text>
+    <text class="s4" x="320" y="224" text-anchor="middle">atomic pointer swap into live dispatch</text>
+    <rect class="g4" x="480" y="186" width="240" height="50" rx="9"/>
+    <text class="t4" x="600" y="207" text-anchor="middle" font-weight="600">persist winner binary</text>
+    <text class="s4" x="600" y="224" text-anchor="middle">overwrites disk cache — evolve once, in CI</text>
+    <path class="l4" d="M661 88 C661 150, 400 160, 330 182"/>
+    <line class="l4" x1="440" y1="211" x2="476" y2="211"/>
+  </svg>
+  <figcaption>~3,500-point strategy space, every point a valid program.
+  Measured: 2.1x on fp reductions, 1.28x on recursion — and an honest 1.00x
+  where -O3 or memory bandwidth already won; a regression is never installed.</figcaption>
+  </figure>
+  <div class="callout">
+    <p><strong>Why not genetic programming?</strong> GP mutates code, so
+    equivalence must be re-proven per candidate (STOKE needs an SMT
+    verifier). Our genes are transforms LLVM already guarantees — a 100%
+    valid search space. Structure-level evolution via e-graph equality
+    saturation is the principled roadmap.</p>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p style="margin-bottom:14px">
+    <a href="https://ezducate.ai" style="display:inline-flex;align-items:center;gap:10px;
+       text-decoration:none;color:inherit">
+      <span class="ezlogo" role="img" aria-label="EZducate"></span>
+      <span>Built by the team behind <strong style="color:var(--blue)">EZducate</strong></span>
+    </a><br>
+    An AI-powered special-education platform helping 15,000+ families and educators
+    with literacy, ABA support, and IEP tools. HanaJit accelerates numeric workloads
+    in EZducate's R&amp;D pipeline.
+  </p>
+  Apache-2.0 · alpha software — read <a href="../docs/limitations.md">limitations</a> first ·
+  built with LLVM/llvmlite · ha ana — here I am, compiled
+</footer>
+</body>
+</html>
