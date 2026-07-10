@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.1
+
+Patch: fixed a stale test that assumed float32 arrays were unsupported.
+float32 became a supported dtype in 0.20.0, so the fallback test now uses
+float16 (still unsupported) to verify the transparent-interpreter-fallback
+path. No functional code change; CI is green.
+
 ## 0.20.0 — stable
 
 The CPU-performance and GPU-validation release. 207 tests passing across

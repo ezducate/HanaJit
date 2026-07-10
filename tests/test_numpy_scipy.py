@@ -62,10 +62,12 @@ def test_unsupported_dtype_falls_back_correctly():
         for i in range(n):
             s += x[i]
         return s
-    a32 = np.ones(50, dtype=np.float32)
+    # float16 is not in the compiled type lattice (f64/f32/i64), so it must
+    # fall back to the interpreter transparently. (float32 IS supported now.)
+    a16 = np.ones(50, dtype=np.float16)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        assert total(a32, 50) == pytest.approx(50.0)  # interpreter handles it
+        assert total(a16, 50) == pytest.approx(50.0)  # interpreter handles it
         assert any("falling back" in str(x.message) for x in w)
 
 
