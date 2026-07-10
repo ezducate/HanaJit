@@ -12,7 +12,12 @@
        background:var(--paper);color:var(--ink);line-height:1.55}
   .wrap{max-width:920px;margin:0 auto;padding:0 24px}
   header{padding:72px 0 48px;text-align:center}
-  .mark{width:96px;height:96px;margin:0 auto 20px}
+  .mark{width:96px;height:96px;flex:0 0 auto}
+  .lockup{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}
+  .lockup .wordblock{text-align:left}
+  .lockup .ar{font-family:'Noto Naskh Arabic','Amiri',serif;font-size:1.6rem;color:#5A648C;line-height:1.1;margin:0 0 2px}
+  .lockup h1{margin:0}
+  @media (max-width:420px){.lockup{gap:14px}.lockup .wordblock{text-align:center}}
   h1{font-size:2.6rem;letter-spacing:.5px}
   h1 .jit{color:var(--blue)}
   .tag{color:var(--muted);margin-top:8px;font-size:1.05rem}
@@ -71,15 +76,17 @@
   <a class="cta" href="https://ezducate.ai">Visit EZducate</a>
 </div></div>
 <header class="wrap">
-  <svg class="mark" viewBox="0 0 128 128" aria-label="Hana Jit mark — Amazigh yaz in an eight-point star">
-    <path fill="#2B3FC4" fill-rule="evenodd" d="M 64 7.4 L 120.6 64 L 64 120.6 L 7.4 64 Z
-      M 79.0 57.8 L 79.0 70.2 L 70.2 79.0 L 57.8 79.0 L 49.0 70.2 L 49.0 57.8 L 57.8 49.0 L 70.2 49.0 Z"/>
-    <path fill="#1B4FA0" d="M 79.0 57.8 L 79.0 70.2 L 70.2 79.0 L 57.8 79.0 L 49.0 70.2 L 49.0 57.8 L 57.8 49.0 L 70.2 49.0 Z"/>
-    <g transform="translate(52.59,74.71) scale(0.03,-0.03)"><path d="M50 0Q68 122 143.0 200.0Q218 278 336 291V423Q218 436 143.0 514.0Q68 592 50 714H140Q155 626 202.5 570.0Q250 514 336 503V714H425V503Q511 515 558.5 570.5Q606 626 621 714H711Q693 592 617.5 514.5Q542 437 425 423V291Q542 277 617.5 199.5Q693 122 711 0H621Q606 88 558.5 143.5Q511 199 425 211V0H336V211Q250 200 202.5 144.0Q155 88 140 0Z" fill="#F7F5EF"/></g>
-    <rect x="24" y="24" width="80" height="80" fill="none" stroke="#E8A020" stroke-width="5.5"/>
-  </svg>
-  <div style="font-family:'Noto Naskh Arabic','Amiri',serif;font-size:1.5rem;color:#5A648C;margin-bottom:2px" dir="rtl">هانا جيت</div>
-  <h1>Hana <span class="jit">Jit</span></h1>
+  <div class="lockup">
+    <svg class="mark" viewBox="0 0 128 128" aria-label="Hana Jit mark — Amazigh yaz in an eight-point star">
+      <path fill="#2B3FC4" d="M 64 7.4 L 120.6 64 L 64 120.6 L 7.4 64 Z"/>
+      <g transform="translate(52.59,74.71) scale(0.03,-0.03)"><path d="M50 0Q68 122 143.0 200.0Q218 278 336 291V423Q218 436 143.0 514.0Q68 592 50 714H140Q155 626 202.5 570.0Q250 514 336 503V714H425V503Q511 515 558.5 570.5Q606 626 621 714H711Q693 592 617.5 514.5Q542 437 425 423V291Q542 277 617.5 199.5Q693 122 711 0H621Q606 88 558.5 143.5Q511 199 425 211V0H336V211Q250 200 202.5 144.0Q155 88 140 0Z" fill="#F7F5EF"/></g>
+      <rect x="24" y="24" width="80" height="80" fill="none" stroke="#E8A020" stroke-width="5.5"/>
+    </svg>
+    <div class="wordblock">
+      <p class="ar" dir="rtl">هانا جيت</p>
+      <h1>Hana <span class="jit">Jit</span></h1>
+    </div>
+  </div>
   <p class="tag">A little compiler that turns ordinary Python into fast native
   code — no rewrite, no new language, and it gets out of your way when it
   can't help. The name's a bilingual pun: <strong>ها أنا</strong> <em>(hana,
