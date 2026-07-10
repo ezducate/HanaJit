@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.20.2
+
+Documentation, website, and repository release. No functional code changes;
+the compiler and its behavior are identical to 0.20.1, and all 208 tests
+pass across Python 3.10–3.14 on Linux / Windows 11 / macOS Apple Silicon.
+
+- Windows CI: `examples/demo.py` now writes FPGA output to a temporary
+  directory instead of a hardcoded `/tmp` path, so the demo smoke test runs
+  on Windows runners.
+- Documentation accuracy pass: corrected the test count (208), the
+  `reduce_reassoc` reduction figure (~1.5x over the default), the float32
+  reduction figure (~2.7x over the float64 baseline), and the default CUDA
+  arch reference (sm_75) to match the code. Added an explicit note that GPU
+  backends emit and assemble vendor-valid code but do not yet launch
+  kernels.
+- Landing page and GitHub Pages: added a project landing page under `docs/`
+  for Pages, five architecture diagrams to the README, and a project logo.
+
 ## 0.20.1
 
 Patch: fixed a stale test that assumed float32 arrays were unsupported.
