@@ -9,5 +9,5 @@ from .backends.detect import detect
 prange = range
 from .errors import UnsupportedError
 
-__version__ = "0.20.2"
+__version__ = "0.21.0"
 __all__ = ["jit", "pmap", "prange", "detect", "UnsupportedError"]

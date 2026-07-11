@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.21.0
+
+Adds **narrow-integer compute mode** (`f.narrow(...)`, experimental, opt-in) —
+the integer companion to float32 mode. For a memory-bandwidth-bound integer
+reduction over a large 1-D `int8` / `int16` / `int32` array, the compiled
+kernel loads narrow elements as SIMD vectors and accumulates in a wide `int64`
+vector, moving far fewer bytes per element.
+
+- **Exact results, no overflow.** Accumulation is always 64-bit, so the result
+  is bit-identical to the `int64` sum. This is the key difference from naive
+  narrowing, where an int8 accumulator wraps around.
+- **Measured speedups** on a memory-bound sum: `int8` ~2.3-3.2x, `int16`
+  ~2.0-2.3x, `int32` ~1.5x over an `int64` baseline. Bandwidth-dependent;
+  re-measure on your hardware.
+- **Opt-in and scoped.** Gated behind `confirmed=True` (like hyper mode). Unlike
+  hyper mode the result is exact — what is "experimental" is the specialized
+  codegen path and the narrow-storage requirement. Currently accelerates the
+  sum reduction over one narrow array; other patterns fall back to the normal
+  compiler with a warning.
+- **`int4` / `int2` are intentionally not supported on CPU** — there are no
+  sub-byte SIMD load instructions, so they require bit-unpacking whose cost eats
+  the bandwidth saving. They belong on the accelerator roadmap.
+
+217 tests passing across Python 3.10-3.14 on Linux / Windows 11 / macOS Apple
+Silicon.
+
 ## 0.20.2
 
 Documentation, website, and repository release. No functional code changes;

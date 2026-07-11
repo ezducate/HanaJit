@@ -101,7 +101,7 @@
     <div class="num"><b>3.7x</b><span>vs numba on a fused NumPy expression</span></div>
     <div class="num"><b>2.7x</b><span>float32 reduction over the float64 baseline</span></div>
     <div class="num"><b>~46 ns</b><span>per call — 3.6x less overhead than numba</span></div>
-    <div class="num"><b>208</b><span>tests green, Python 3.10–3.14, 3 OSes</span></div>
+    <div class="num"><b>217</b><span>tests green, Python 3.10–3.14, 3 OSes</span></div>
   </div>
   <p class="quiet">Every number here is measured and regenerates from
   <code>benchmarks/</code> — results are cross-verified against NumPy and numba
@@ -376,7 +376,7 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   <code>target="auto"</code> probes driver libraries per-kernel.</p>
   <table class="spec">
     <tr><th>target</th><th>emission</th><th>verified by</th></tr>
-    <tr><td>cpu</td><td>host-tuned object via MCJIT</td><td>208 tests × Linux/Windows/macOS</td></tr>
+    <tr><td>cpu</td><td>host-tuned object via MCJIT</td><td>217 tests × Linux/Windows/macOS</td></tr>
     <tr><td>cuda</td><td>NVPTX → PTX (sm_75)</td><td>doctor: PTX emission ✓ (ptxas optional)</td></tr>
     <tr><td>amd</td><td>AMDGPU → GCN gfx90a</td><td>doctor ✓ on all three platforms</td></tr>
     <tr><td>intel</td><td>SPIR-V for Level Zero</td><td>doctor ✓ (thread intrinsics roadmap)</td></tr>
@@ -450,7 +450,7 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   </figure>
 
   <h3>8 · The experimental corner (opt-in, clearly labeled)</h3>
-  <p>Two opt-in, CPU-only experiments, both documented with their limits.
+  <p>Three opt-in, CPU-only experiments, all documented with their limits.
   <strong>Structural rewrite</strong> (<code>@jit(rewrite=True)</code>) is a
   library of pattern-matched algebraic transforms — e.g. a loop summing an
   affine series collapses to its closed form <code>a&middot;n(n-1)/2 +
@@ -458,6 +458,15 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   program understanding (which is undecidable), and -O3 already
   closes the simplest of these — its value is a guaranteed O(1) form plus a
   home for rewrites LLVM misses.</p>
+  <p><strong>Narrow-integer mode</strong> (<code>f.narrow(arr,
+  confirmed=True)</code>) is the integer companion to float32: a memory-bound
+  sum over an <code>int8</code>/<code>int16</code>/<code>int32</code> array is
+  loaded as narrow SIMD vectors and accumulated in a wide <code>int64</code>
+  vector &mdash; <strong>exact result, no overflow</strong>, roughly
+  <strong>2.3&ndash;3.2x</strong> on int8. Unlike hyper mode its answer is
+  always correct; the opt-in reflects the specialized codegen path, not a
+  correctness trade-off. int4/int2 aren&rsquo;t supported on CPU (no sub-byte
+  SIMD loads).</p>
   <div class="warn">
     <p><strong>Hyper-aggressive mode</strong> (<code>evolve_hyper(args,
     confirmed=True)</code>) evolves <em>unsafe</em> fp transforms —

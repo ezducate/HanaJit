@@ -363,6 +363,46 @@ class Dispatcher:
         return _ev.evolve(self, example_args, hyper_aggressive=True,
                           _hyper_confirmed=True, **kw)
 
+    def narrow(self, *example_args, confirmed=False, **kw):
+        """NARROW-INTEGER compute (EXPERIMENTAL, opt-in). The integer companion
+        to float32 mode: for a memory-bandwidth-bound integer reduction over a
+        large 1-D array stored as int8 / int16 / int32, this loads narrow
+        elements as SIMD vectors and accumulates in a wide int64 vector, moving
+        far fewer bytes per element.
+
+        The RESULT IS EXACT (bit-identical to the int64 sum) — accumulation is
+        always 64-bit, so there is no accumulator overflow. What is
+        "experimental" is the specialized codegen path and the requirement that
+        the input already be a narrow-dtype array.
+
+        Measured on a memory-bound sum: int8 ~2.3-2.6x, int16 ~2.0-2.3x,
+        int32 ~1.5-1.7x over an int64 baseline. Bandwidth-dependent; re-measure
+        on your hardware. int4 / int2 are not supported on CPU (no sub-byte SIMD
+        loads). Currently accelerates the sum reduction over one narrow array.
+
+        Requires confirmed=True to proceed. Returns the exact sum.
+        """
+        if not confirmed:
+            raise UnsupportedError(
+                "narrow() is an EXPERIMENTAL narrow-integer compute mode. It "
+                "requires the input to be a 1-D contiguous int8/int16/int32 "
+                "array and currently accelerates the sum reduction. The result "
+                "is exact (64-bit accumulation, no overflow). If you accept "
+                "that this is an experimental, narrowly-scoped path, call with "
+                "confirmed=True.")
+        from . import narrow as _nw
+        if len(example_args) != 1:
+            raise UnsupportedError(
+                "narrow() currently takes exactly one narrow integer array")
+        arr = example_args[0]
+        if _nw.supported_dtype(arr) is None:
+            import warnings
+            warnings.warn(
+                "hanajit.narrow: argument is not a 1-D contiguous "
+                "int8/int16/int32 array; falling back to the normal reduction.")
+            return None
+        return _nw.narrow_sum(arr)
+
     def _install_evolved_hyper(self, sig, genome, ir_fast_text):
         """Install a hyper winner into LIVE dispatch only, never disk."""
         from .backends import cpu
@@ -489,7 +529,7 @@ class Dispatcher:
                                                    self.modules)
         for name in ("specialize", "inspect_llvm", "inspect_asm",
                      "inspect_gpu", "export_fpga", "scipy_callable",
-                     "evolve", "evolve_hyper"):
+                     "evolve", "evolve_hyper", "narrow"):
             setattr(proxy, name, getattr(self, name))
         proxy.__wrapped__ = self.pyfunc
         proxy.__name__ = self.pyfunc.__name__

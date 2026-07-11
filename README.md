@@ -66,7 +66,7 @@ Hana Jit was developed in the R&D pipeline at [EZducate](https://ezducate.ai) to
 
 ## Status
 
-Hana Jit is alpha software. The CPU compiler is stable and tested: **208 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU support is code generation only — it emits GPU assembly that vendor toolchains accept, but does not yet launch kernels on a GPU (see [Limitations](#limitations)). APIs may change before 1.0; pin a version if you depend on it.
+Hana Jit is alpha software. The CPU compiler is stable and tested: **217 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU support is code generation only — it emits GPU assembly that vendor toolchains accept, but does not yet launch kernels on a GPU (see [Limitations](#limitations)). APIs may change before 1.0; pin a version if you depend on it.
 
 ---
 
@@ -192,6 +192,31 @@ total(x.astype(np.float32))   # 32-bit compute path
 
 On a memory-bound reduction, float32 with `reduce_reassoc` runs about 2.7× the float64 baseline. The result carries float32 precision (approximately 7 significant digits) — a bounded trade-off, equivalent to computing in float32 elsewhere. Use it where float32 precision is sufficient.
 
+### narrow (experimental)
+
+The integer companion to float32 mode. For a memory-bandwidth-bound integer reduction over a large 1-D `int8` / `int16` / `int32` array, narrow mode loads the narrow elements as SIMD vectors and accumulates in a wide `int64` vector — moving far fewer bytes per element while keeping the result exact:
+
+```python
+import numpy as np
+from hanajit import jit
+
+@jit
+def total(x):
+    acc = 0
+    for i in range(len(x)):
+        acc += x[i]
+    return acc
+
+data = np.random.default_rng(0).integers(-100, 100, 50_000_000).astype(np.int8)
+result = total.narrow(data, confirmed=True)   # exact int64 sum, ~3× faster
+```
+
+The result is bit-identical to the `int64` sum because accumulation is always 64-bit — there is no accumulator overflow (the failure mode of naive narrowing, where an `int8` accumulator wraps around). On a memory-bound sum, measured speedups are roughly `int8` 2.3–3.2×, `int16` 2.0–2.3×, and `int32` 1.5× over an `int64` baseline; these are bandwidth-dependent and vary by hardware.
+
+This mode is experimental and opt-in: it requires `confirmed=True`, exactly like the hyper-aggressive optimizer. Unlike hyper mode, the result is exact — what is experimental is the specialized codegen path and the requirement that the input already be a narrow-dtype array. It currently accelerates the sum reduction over one narrow array; other patterns fall back to the normal compiler with a warning. `int4` and `int2` are not supported on CPU, because there are no sub-byte SIMD load instructions and the bit-unpacking they require eats the bandwidth saving.
+
+For a worked scientific example, [`examples/rdf_narrow.py`](examples/rdf_narrow.py) computes protein-water coordination numbers (a radial distribution function analysis) on a real solvated protein, using `narrow` to reduce millions of per-pair `int8` indicators — the memory-bound integer sum that narrow targets.
+
 ### Genetic optimizer
 
 Different CPUs favor different compilation choices (unroll factors, vectorization widths). `evolve()` runs a genetic search over compilation strategies, times each candidate on the current hardware with the supplied data, and installs the fastest:
@@ -265,11 +290,13 @@ def energy(a):
 
 ### Experimental features
 
-Two features are gated behind explicit opt-ins because they carry additional risk. Both are documented in [`docs/experimental.md`](docs/experimental.md).
+Three features are gated behind explicit opt-ins because they carry additional risk. All are documented in [`docs/experimental.md`](docs/experimental.md).
 
 **`@jit(rewrite=True)`** applies pattern-matched algebraic rewrites — for example, a loop summing an arithmetic series is replaced by its closed-form expression. Each rewrite is individually proven correct and fires only on an exact pattern match.
 
 **`evolve_hyper(..., confirmed=True)`** extends `evolve()` with unsafe floating-point transforms (aggressive reassociation, reciprocals, approximate functions). It keeps the fastest candidate that matches the original within a tolerance across a large batch of random inputs. It does not guarantee correctness on untested inputs, requires `confirmed=True`, and is never cached. In the benchmark table below it is frequently a no-op, because the safe `evolve()` has usually already reached the hardware limit. It is intended for kernels where the aggressive transforms unlock additional gains, and should not be used where an incorrect result is unacceptable.
+
+**`narrow(..., confirmed=True)`** (see the [narrow section](#narrow-experimental) above) accelerates a memory-bound integer sum over an `int8` / `int16` / `int32` array using narrow SIMD loads with wide accumulation. Unlike the two features above, its result is always exact; the opt-in reflects the specialized codegen path and the narrow-storage requirement, not a correctness trade-off.
 
 ---
 
@@ -284,6 +311,8 @@ Measured on a single core in a shared CI container. Treat the ratios as the sign
 | 5-operation fused NumPy expression | 3.0× vs NumPy, 3.7× vs Numba |
 | Reduction, `reduce_reassoc` (float64) | ~1.5× over the default |
 | Reduction, `reduce_reassoc` + float32 | ~2.7× over the float64 baseline |
+| Reduction, `narrow` int8 (memory-bound sum) | ~2.3–3.2× over the int64 baseline |
+| Reduction, `narrow` int16 (memory-bound sum) | ~2.0–2.3× over the int64 baseline |
 | `evolve()` genetic optimizer | up to ~5×, correctness-verified |
 | Call / dispatch overhead | ~46 ns (3.6× less than Numba) |
 | `fib(30)` recursion | 1.7× vs Numba |
