@@ -227,7 +227,7 @@ class Dispatcher:
         arg_types = dict(zip(arg_names, sig))
         var_types, ret_type = TypeInferencer(fn_ast, arg_types).run()
         self._sig_ret[sig] = ret_type
-        if (self.target in ("cuda", "amd", "intel", "metal")
+        if (self.target in ("cuda", "amd", "intel", "vulkan", "metal")
                 and any(t in ARRAY_ELEM for t in sig)):
             raise UnsupportedError(
                 "GPU kernels take raw pointers: use 'f64*' in signature=, "
@@ -239,7 +239,8 @@ class Dispatcher:
             raise UnsupportedError(
                 "metal target emits MSL source (see .inspect_gpu()); "
                 "validate with xcrun on macOS — host execution falls back")
-        gpu = self.target if self.target in ("cuda", "amd", "intel") else None
+        gpu = (self.target
+               if self.target in ("cuda", "amd", "intel", "vulkan") else None)
         module = CodeGen(fn_ast, arg_types, var_types, ret_type,
                          reduce_reassoc=self.reduce_reassoc,
                          fastmath=self.fastmath, gpu=gpu).generate()
@@ -249,7 +250,7 @@ class Dispatcher:
                 module, fn_ast.name, sig, ret_type, nogil=self.nogil,
                 cache_key=cache_key)
             self._pending = (kaddr, sig, ret_type)
-        elif self.target in ("cuda", "amd", "intel"):
+        elif self.target in ("cuda", "amd", "intel", "vulkan"):
             from .backends import gpu as gpu_backend
             text, is_native = gpu_backend.emit(
                 module, fn_ast.name, self.target,
@@ -339,7 +340,8 @@ class Dispatcher:
         fn_ast, _ = _get_compiled_ast(self.pyfunc)
         arg_types = dict(zip([a.arg for a in fn_ast.args.args], sig))
         var_types, ret_type = TypeInferencer(fn_ast, arg_types).run()
-        gpu = self.target if self.target in ("cuda", "amd", "intel") else None
+        gpu = (self.target
+               if self.target in ("cuda", "amd", "intel", "vulkan") else None)
         return str(CodeGen(fn_ast, arg_types, var_types, ret_type,
                            fastmath=fastmath, gpu=gpu).generate())
 
@@ -528,7 +530,8 @@ class Dispatcher:
         proxy.cache, proxy._fast, proxy.modules = (self.cache, self._fast,
                                                    self.modules)
         for name in ("specialize", "inspect_llvm", "inspect_asm",
-                     "inspect_gpu", "export_fpga", "scipy_callable",
+                     "inspect_gpu", "inspect_wasm", "export_fpga",
+                     "export_wasm", "scipy_callable",
                      "evolve", "evolve_hyper", "narrow"):
             setattr(proxy, name, getattr(self, name))
         proxy.__wrapped__ = self.pyfunc
@@ -570,11 +573,74 @@ class Dispatcher:
     def inspect_gpu(self):
         return getattr(self, "_gpu_artifact", None)
 
-    def export_fpga(self, path_prefix, sig=None):
+    def _export_sig(self, sig):
+        """Resolve the signature for an export: explicit string/tuple >
+        declared signature= > first compiled specialization."""
+        if isinstance(sig, str):
+            return _parse_signature(sig)
+        if sig is not None:
+            return tuple(sig)
+        if self.signature is not None:
+            return self.signature
+        if self.modules:
+            return next(iter(self.modules))
+        raise RuntimeError("call the function once first, or pass "
+                           "sig='f64, i64' / signature= to the decorator")
+
+    def _typed_kernel(self, sig):
+        """Re-derive the typed AST and a pristine kernel-only module for a
+        signature. Exports use this instead of self.modules[sig]: the CPU
+        compile path appends a fastcall wrapper (with CPython API
+        references) to the stored module, which no offline toolchain
+        wants."""
+        fn_ast, _ = _get_compiled_ast(self.pyfunc, rewrite=self.rewrite)
+        arg_names = [a.arg for a in fn_ast.args.args]
+        if len(arg_names) != len(sig):
+            raise UnsupportedError("arity mismatch with signature")
+        arg_types = dict(zip(arg_names, sig))
+        var_types, ret_type = TypeInferencer(fn_ast, arg_types).run()
+        module = CodeGen(fn_ast, arg_types, var_types, ret_type,
+                         reduce_reassoc=self.reduce_reassoc,
+                         fastmath=self.fastmath).generate()
+        return module, fn_ast, arg_types, var_types, ret_type
+
+    def export_fpga(self, path_prefix, sig=None, part=None, clock_ns=None):
+        """Write an HLS project kit: IR, synthesizable C++ + testbench
+        (when the kernel is in the transpilable subset), and a Vitis HLS
+        TCL script. Returns an FpgaExport namedtuple of paths."""
         from .backends import fpga as fpga_backend
-        sig = sig or next(iter(self.modules))
+        sig = self._export_sig(sig)
+        module, fn_ast, arg_types, var_types, ret_type = \
+            self._typed_kernel(sig)
+        kw = {}
+        if part is not None:
+            kw["part"] = part
+        if clock_ns is not None:
+            kw["clock_ns"] = clock_ns
         return fpga_backend.export_for_hls(
-            self.modules[sig], self.pyfunc.__name__, path_prefix)
+            module, self.pyfunc.__name__, path_prefix,
+            func_ast=fn_ast, arg_types=arg_types, var_types=var_types,
+            ret_type=ret_type, **kw)
+
+    def export_wasm(self, path_prefix, sig=None, bits=32):
+        """Write WebAssembly artifacts: retargeted IR, wasm assembly, a JS
+        loader, and the clang build script; links <prefix>.wasm directly
+        when clang is on PATH. Returns a WasmExport namedtuple of paths."""
+        from .backends import wasm as wasm_backend
+        sig = self._export_sig(sig)
+        module, _, _, _, ret_type = self._typed_kernel(sig)
+        return wasm_backend.export_wasm(
+            module, self.pyfunc.__name__, path_prefix, bits=bits,
+            sig=sig, ret=ret_type)
+
+    def inspect_wasm(self, sig=None, bits=32):
+        """WebAssembly assembly text for inspection. Returns
+        (text, native): native=False means the wasm LLVM target was
+        unavailable and `text` is retargeted IR instead."""
+        from .backends import wasm as wasm_backend
+        sig = self._export_sig(sig)
+        module, _, _, _, _ = self._typed_kernel(sig)
+        return wasm_backend.emit(module, self.pyfunc.__name__, bits=bits)
 
 
 class _IRText:
@@ -615,6 +681,7 @@ def jit(func=None, *, target="cpu", fallback=True, verbose=False,
     def f(x, y): ...
 
     @jit(target="cuda")          # emit PTX/NVPTX IR (experimental)
+    @jit(target="vulkan")        # emit Vulkan-flavor SPIR-V (experimental)
     @jit(fallback=False)         # raise instead of falling back
     """
     def wrap(f):

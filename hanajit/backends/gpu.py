@@ -1,17 +1,23 @@
-"""Multi-vendor GPU backends (experimental): NVIDIA, AMD, Intel.
+"""Multi-vendor GPU backends (experimental): NVIDIA, AMD, Intel, Vulkan.
 
-All three retarget the same LLVM IR; only the triple, datalayout, and
-kernel calling convention differ:
+All retarget the same LLVM IR; only the triple, datalayout, and kernel
+calling convention / entry-point annotations differ:
 
 - NVIDIA: nvptx64 triple + nvvm.annotations  -> PTX text
 - AMD:    amdgcn-amd-amdhsa + amdgpu_kernel  -> GCN ISA / HSA code object
           (runtime: ROCm/HIP)
-- Intel:  spirv64 + spir_kernel              -> SPIR-V
+- Intel:  spirv64 + spir_kernel              -> SPIR-V (OpenCL flavor)
           (runtime: Level Zero / oneAPI / OpenCL)
+- Vulkan: spirv-unknown-vulkan1.3-compute    -> SPIR-V (GLCompute /
+          shader flavor; entry point annotated hlsl.shader="compute").
+          Vulkan-flavor SPIR-V is NOT interchangeable with the Intel
+          target's OpenCL flavor — Vulkan drivers only accept the former.
 
 v0.1 emits device code for inspection/offline use; host-side kernel
 launch bridges are on the roadmap.
 """
+import re as _re
+
 from llvmlite import binding as llvm
 
 TARGETS = {
@@ -28,6 +34,9 @@ TARGETS = {
                   datalayout="e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-"
                              "v192:256-v256:256-v512:512-v1024:1024-n8:16:32:64",
                   cpu="", callconv="spir_kernel"),
+    "vulkan": dict(triple="spirv-unknown-vulkan1.3-compute",
+                   datalayout="",  # logical addressing: let LLVM infer
+                   cpu="", callconv=None),
 }
 
 _init_done = False
@@ -60,6 +69,18 @@ def _init():
         _init_done = True
 
 
+def vulkan_local_size():
+    """Workgroup local size as "x,y,z" (hlsl.numthreads). Vulkan fixes it
+    at compile time; override with HANAJIT_VULKAN_LOCAL_SIZE=128,1,1."""
+    v = _os.environ.get("HANAJIT_VULKAN_LOCAL_SIZE", "64,1,1")
+    parts = [p.strip() for p in v.split(",")]
+    if len(parts) != 3 or not all(p.isdigit() and int(p) > 0 for p in parts):
+        raise ValueError(
+            "HANAJIT_VULKAN_LOCAL_SIZE must be three positive integers "
+            f"'x,y,z', got {v!r}")
+    return ",".join(parts)
+
+
 def retarget(module, kernel_name, vendor):
     cfg = TARGETS[vendor]
     module.triple = cfg["triple"]
@@ -72,6 +93,16 @@ def retarget(module, kernel_name, vendor):
     if vendor == "cuda":
         ir_text += (f'\n!nvvm.annotations = !{{!0}}\n'
                     f'!0 = !{{ptr @{kernel_name}, !"kernel", i32 1}}\n')
+    if vendor == "vulkan":
+        # SPIR-V shader-flavor entry points are mandatory-annotated; LLVM
+        # aborts (report_fatal_error) on an entry without hlsl.shader.
+        ir_text, n = _re.subn(
+            r'(?m)^(define [^\n]*@"?%s"?\([^\n]*\))$'
+            % _re.escape(kernel_name),
+            r'\1 #9', ir_text, count=1)
+        if n:
+            ir_text += ('\nattributes #9 = { "hlsl.shader"="compute" '
+                        f'"hlsl.numthreads"="{vulkan_local_size()}" }}\n')
     return ir_text
 
 
@@ -88,7 +119,7 @@ def _rettype(ir_text, name):
 import os as _os
 
 _ARCH_ENV = {"cuda": "HANAJIT_CUDA_ARCH", "amd": "HANAJIT_AMD_ARCH",
-             "intel": "HANAJIT_INTEL_ARCH"}
+             "intel": "HANAJIT_INTEL_ARCH", "vulkan": "HANAJIT_VULKAN_ARCH"}
 
 
 def resolve_arch(vendor, cpu=None):
@@ -113,6 +144,17 @@ def emit(module, kernel_name, vendor, cpu=None):
     cfg = TARGETS[vendor]
     arch = resolve_arch(vendor, cpu)
     ir_text = retarget(module, kernel_name, vendor)
+    if vendor == "vulkan":
+        # llvmlite's SPIR-V shader backend hard-aborts the process
+        # (assertion/report_fatal_error, not a Python exception) on IR it
+        # cannot select — e.g. any non-zero-index GEP under logical
+        # addressing. Emit in a throwaway subprocess so a crash there
+        # degrades to the annotated-IR fallback instead of killing us.
+        from . import isolated
+        text = isolated.emit_assembly(ir_text, cfg["triple"], arch)
+        if text is not None:
+            return text, True
+        return ir_text, False
     try:
         target = llvm.Target.from_triple(cfg["triple"])
         tm = target.create_target_machine(cpu=arch)

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.22.0
+
+Adds a **WebAssembly export backend**, a **Vulkan GPU target**, and a
+substantially expanded **FPGA export**.
+
+- **WebAssembly** (`f.export_wasm(prefix, sig=None, bits=32)`, plus
+  `f.inspect_wasm()`): retargets the kernel IR to `wasm32`/`wasm64` and
+  writes the retargeted `.ll`, WebAssembly assembly `.s`, an ES-module
+  loader `.mjs` (libm calls map to JS `Math`; `i64` ↔ `BigInt`), and the
+  exact clang build command. When any standard clang is on PATH the final
+  `.wasm` is linked automatically (`HANAJIT_WASM_CLANG` overrides).
+  llvmlite's wasm emitter is crash-prone in-process (access violations on
+  alloca-bearing modules and repeated emissions), so assembly emission
+  runs in an isolated subprocess and degrades to retargeted IR.
+- **Vulkan** (`@jit(target="vulkan")`): emits shader-flavor SPIR-V
+  (`spirv-unknown-vulkan1.3-compute`, `OpEntryPoint GLCompute`), with the
+  mandatory `hlsl.shader`/`hlsl.numthreads` entry-point attributes.
+  `thread_id()`/`block_id()` lower to `llvm.spv.thread.id.in.group` /
+  `llvm.spv.group.id`; `block_dim()` folds to the compile-time workgroup
+  size (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`). LLVM's shader
+  backend hard-aborts on IR it cannot select (e.g. buffer indexing under
+  logical addressing), so emission is subprocess-isolated: accepted
+  kernels yield real SPIR-V (`native=True`), the rest fall back to
+  annotated IR. Distinct from the `intel` target's OpenCL-flavor SPIR-V.
+- **FPGA** (`f.export_fpga(prefix, sig=None, part=None, clock_ns=None)`):
+  now writes a full Vitis HLS project kit — a synthesizable C++ top
+  function transpiled from the typed Python AST (`PIPELINE II=1` on
+  innermost loops, `m_axi`/`s_axilite` interface pragmas), a C-simulation
+  testbench, and a runnable `csim → csynth → export_design` TCL script
+  with configurable part and clock, alongside the `.ll`. Kernels outside
+  the transpilable subset still export IR + a TCL stub. **Breaking:** the
+  return value is now an `FpgaExport` namedtuple `(ll, tcl, cpp, tb)`
+  instead of a 2-tuple.
+- Exports no longer embed the CPython fastcall wrapper: `export_wasm` /
+  `export_fpga` re-derive a pristine kernel-only module, and accept a
+  signature string (`sig="f64, i64"`) so a function can be exported
+  without being called first.
+
+236 tests passing across Python 3.10-3.14 on Linux / Windows 11 / macOS
+Apple Silicon.
+
 ## 0.21.0
 
 Adds **narrow-integer compute mode** (`f.narrow(...)`, experimental, opt-in) —

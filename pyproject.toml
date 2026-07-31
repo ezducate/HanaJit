@@ -4,12 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hanajit"
-version = "0.21.0"
-description = "LLVM-backed JIT for Python using CPython's own parser, with transparent interpreter fallback. Targets CPU (working), NVIDIA GPU and FPGA (experimental IR emission)."
+version = "0.22.0"
+description = "LLVM-backed JIT for Python using CPython's own parser, with transparent interpreter fallback, by EZducate (www.ezducate.ai). Targets CPU (working); NVIDIA/AMD/Intel/Vulkan GPU, WebAssembly, and FPGA HLS (experimental export)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Iqbal Addou", email = "cto@ezducate.ai" }]
+authors = [
+  { name = "Iqbal Addou", email = "cto@ezducate.ai" },
+  { name = "Iqbal Addou", email = "iqbal.addou@gmail.com" },
+]
+maintainers = [{ name = "Iqbal Addou", email = "cto@ezducate.ai" }]
 dependencies = ["llvmlite>=0.42"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -29,10 +33,13 @@ classifiers = [
 ]
 
 keywords = ["jit", "compiler", "llvm", "numpy", "performance", "numba",
-            "vectorization", "gpu", "ptx", "simd"]
+            "vectorization", "gpu", "ptx", "simd", "wasm", "webassembly",
+            "spirv", "vulkan", "fpga", "hls"]
 
 [project.urls]
-Homepage = "https://github.com/ezducate/HanaJit"
+Homepage = "https://www.ezducate.ai"
+EZducate = "https://www.ezducate.ai"
+GitHub = "https://github.com/ezducate/HanaJit"
 Repository = "https://github.com/ezducate/HanaJit"
 Issues = "https://github.com/ezducate/HanaJit/issues"
 Changelog = "https://github.com/ezducate/HanaJit/blob/main/CHANGELOG.md"

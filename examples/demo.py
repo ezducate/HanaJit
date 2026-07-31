@@ -101,10 +101,22 @@ import os
 import tempfile
 try:
     _fpga_dir = tempfile.mkdtemp(prefix="hanajit_fpga_")
-    ll, tcl = fib.export_fpga(os.path.join(_fpga_dir, "fib_fpga"))
-    print(f"\nFPGA export: {ll}, {tcl}")
+    fpga = fib.export_fpga(os.path.join(_fpga_dir, "fib_fpga"))
+    print(f"\nFPGA export: {fpga.ll}, {fpga.tcl}")
+    if fpga.cpp:
+        print(f"  HLS C++ + testbench: {fpga.cpp}, {fpga.tb}")
 except Exception as e:
     print(f"\nFPGA export skipped: {e}")
+
+# --- WebAssembly export ---
+try:
+    _wasm_dir = tempfile.mkdtemp(prefix="hanajit_wasm_")
+    w = fib.export_wasm(os.path.join(_wasm_dir, "fib"))
+    print(f"\nWASM export: {w.ll}, loader {w.mjs}"
+          + (f", linked {w.wasm}" if w.wasm else " (no clang: run "
+             + w.build + ")"))
+except Exception as e:
+    print(f"\nWASM export skipped: {e}")
 
 # --- multithreading: nogil kernels ---
 import threading

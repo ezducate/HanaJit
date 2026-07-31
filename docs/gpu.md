@@ -29,7 +29,8 @@ call). Intrinsics: `thread_id()`, `block_id()`, `block_dim()`.
 |---|---|---|
 | `cuda` | PTX (LLVM NVPTX) | All three intrinsics (`%tid.x`, `%ctaid.x`, `%ntid.x`). Assemble with `ptxas` to sanity-check on a CUDA machine. |
 | `amd` | GCN ISA / HSA code object v6 (LLVM AMDGPU, default `gfx90a`) | `thread_id`/`block_id` only — pass the workgroup size as a kernel argument (reading the dispatch packet is roadmap). IR is optimized before emission (AMDGPU rejects generic-addrspace allocas). |
-| `intel` | SPIR-V (LLVM SPIR-V backend) | `spir_kernel` calling convention; runtime would be Level Zero / OpenCL. |
+| `intel` | SPIR-V, OpenCL flavor (LLVM SPIR-V backend) | `spir_kernel` calling convention; runtime would be Level Zero / OpenCL. |
+| `vulkan` | SPIR-V, shader flavor (`GLCompute`) | Entry point annotated `hlsl.shader="compute"` + `hlsl.numthreads`. `thread_id`/`block_id` map to `llvm.spv.thread.id.in.group` / `llvm.spv.group.id`; `block_dim()` folds to the compile-time workgroup size (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`). Emission runs in an isolated subprocess (LLVM's shader backend hard-aborts on IR it cannot select, e.g. buffer indexing under logical addressing); kernels it rejects fall back to annotated IR with `native=False`. Not interchangeable with the `intel` target's OpenCL-flavor SPIR-V. |
 | `metal` | Metal Shading Language **source** | LLVM has no Metal target, so this is an exact source transpiler over the compile subset. **f64 lowers to float32** (Metal has no double); GPU integer `/` and `%` keep C semantics. Same three intrinsics, mapped to threadgroup attributes. Validate on a Mac: `python examples/metal_check.py` (compiles with real `xcrun metal` to `.metallib`). |
 
 ## `target="auto"`
@@ -42,9 +43,24 @@ indexed kernel can't run on the CPU, and a late `NameError` would be worse.
 
 ## FPGA
 
-`f.export_fpga(prefix)` writes optimized LLVM IR plus a Vitis HLS TCL stub.
-FPGA flows must go through HLS (Vitis HLS's LLVM front end) or CIRCT; there
-is no direct LLVM→bitstream path.
+`f.export_fpga(prefix, part=None, clock_ns=None)` writes a Vitis HLS
+project kit: LLVM IR, a **synthesizable C++ top function** transpiled from
+the typed Python AST (interface + pipeline pragmas included), a C-simulation
+testbench, and a runnable TCL script (`csim → csynth → export_design`).
+Kernels outside the transpilable subset still get IR + a TCL stub. FPGA
+flows must go through HLS (Vitis HLS synthesizes the generated C++
+directly; its LLVM front end ingests the IR) or CIRCT; there is no direct
+LLVM→bitstream path.
+
+## WebAssembly
+
+`f.export_wasm(prefix, sig=None, bits=32)` retargets the kernel IR to
+`wasm32`/`wasm64` and writes: the retargeted `.ll`, WebAssembly assembly
+`.s`, an ES-module loader `.mjs` (libm → JS `Math` imports; `i64` ↔
+`BigInt` at the boundary), and the clang build script. When clang is on
+PATH (any standard build — no Emscripten), the final `.wasm` is linked
+automatically; `HANAJIT_WASM_CLANG` overrides which clang is used.
+`f.inspect_wasm()` returns the assembly text without writing files.
 
 ## Toolchain & GPU compatibility
 
@@ -102,4 +118,6 @@ of the `ptxas` check for NVIDIA.
 **Intel note:** SPIR-V *emission* is verified, but Intel thread-index
 intrinsics (`thread_id` etc.) are not yet mapped to SPIR-V builtins, so
 data-parallel Intel kernels currently fall back. This is the least
-complete of the four GPU targets and is on the roadmap.
+complete of the GPU targets and is on the roadmap. (The `vulkan` target
+*does* map the thread intrinsics — via `llvm.spv.*` — but its emitter
+accepts a narrower IR subset; see the table above.)

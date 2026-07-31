@@ -4,6 +4,10 @@
 
 **An LLVM-backed JIT compiler for Python. It compiles ordinary functions and NumPy code to native machine code, and falls back to the interpreter for code it cannot compile.**
 
+By [EZducate](https://www.ezducate.ai) — [www.ezducate.ai](https://www.ezducate.ai)
+
+Author: **Iqbal Addou** · [iqbal.addou@gmail.com](mailto:iqbal.addou@gmail.com) · [cto@ezducate.ai](mailto:cto@ezducate.ai)
+
 [![CI](https://github.com/ezducate/HanaJit/actions/workflows/ci.yml/badge.svg)](https://github.com/ezducate/HanaJit/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.14-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -66,7 +70,7 @@ Hana Jit was developed in the R&D pipeline at [EZducate](https://ezducate.ai) to
 
 ## Status
 
-Hana Jit is alpha software. The CPU compiler is stable and tested: **217 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU support is code generation only — it emits GPU assembly that vendor toolchains accept, but does not yet launch kernels on a GPU (see [Limitations](#limitations)). APIs may change before 1.0; pin a version if you depend on it.
+Hana Jit is alpha software. The CPU compiler is stable and tested: **236 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU support is code generation only — it emits GPU code that vendor toolchains accept, but does not yet launch kernels on a GPU; WebAssembly and FPGA are export paths for external toolchains (see [Limitations](#limitations)). APIs may change before 1.0; pin a version if you depend on it.
 
 ---
 
@@ -353,7 +357,7 @@ Hana Jit is approximately 3,000 lines of Python. One intermediate representation
 1. **Frontend** — `inspect.getsource` + `ast.parse` produce the exact tree CPython would execute. There is no custom parser.
 2. **Type inference** — a fixpoint over a small set of types (`int64`, `float64`, `float32`, `bool`, pointers, array shapes). Anything outside the set raises an internal `UnsupportedError`, which becomes a fallback to the interpreter.
 3. **Code generation** — the typed tree lowers to LLVM IR, including the fusion engine that compiles array expressions into element generators fused into one loop.
-4. **Backends** — the IR module is optimized (`-O3`) and either JIT-compiled for the host CPU, re-targeted for a GPU, or exported for FPGA synthesis.
+4. **Backends** — the IR module is optimized (`-O3`) and either JIT-compiled for the host CPU, re-targeted for a GPU, exported as WebAssembly, or exported for FPGA synthesis.
 
 ```mermaid
 flowchart TD
@@ -362,17 +366,21 @@ flowchart TD
     OPT --> NV["NVIDIA → PTX<br/>ptxas → cubin ✓ emit-only"]
     OPT --> AMD["AMD → GCN<br/>llvm-mc → object ✓ emit-only"]
     OPT --> INT["Intel → SPIR-V<br/>emit-only"]
+    OPT --> VLK["Vulkan → SPIR-V GLCompute<br/>emit-only"]
     OPT --> APL["Apple → Metal<br/>xcrun metal ✓ emit-only"]
-    OPT --> FPGA["FPGA → HLS IR + TCL<br/>export-only"]
+    OPT --> WASM["WebAssembly → .ll/.s + JS loader<br/>clang links .wasm"]
+    OPT --> FPGA["FPGA → HLS C++ + IR + TCL<br/>export-only"]
     style CPU fill:#EAEBF6,stroke:#2B3FC4
     style NV fill:#FBF0DD,stroke:#E8A020
     style AMD fill:#FBF0DD,stroke:#E8A020
     style INT fill:#FBF0DD,stroke:#E8A020
+    style VLK fill:#FBF0DD,stroke:#E8A020
     style APL fill:#FBF0DD,stroke:#E8A020
+    style WASM fill:#FBF0DD,stroke:#E8A020
     style FPGA fill:#FBF0DD,stroke:#E8A020
 ```
 
-The CPU backend runs compiled code directly. The GPU backends emit and assemble vendor-valid code but do not launch kernels (see [Limitations](#limitations)); the FPGA path exports IR for external synthesis.
+The CPU backend runs compiled code directly. The GPU backends emit and assemble vendor-valid code but do not launch kernels (see [Limitations](#limitations)); the WebAssembly and FPGA paths export artifacts for external toolchains (clang / Vitis HLS).
 
 
 
@@ -385,15 +393,45 @@ flowchart LR
     D -->|unsupported| F[Interpreter fallback<br/>+ one warning]
     E --> G[LLVM -O3]
     G --> H1[Host CPU<br/>JIT machine code]
-    G --> H2[GPU target<br/>PTX / GCN / SPIR-V / Metal]
-    G --> H3[FPGA<br/>HLS IR export]
+    G --> H2[GPU target<br/>PTX / GCN / SPIR-V / Vulkan / Metal]
+    G --> H3[FPGA<br/>HLS C++ + IR export]
+    G --> H4[WebAssembly<br/>wasm32/wasm64 export]
     style F fill:#FDECEC,stroke:#C44B3F
     style H1 fill:#EAEBF6,stroke:#2B3FC4
     style H2 fill:#FBF0DD,stroke:#E8A020
     style H3 fill:#FBF0DD,stroke:#E8A020
+    style H4 fill:#FBF0DD,stroke:#E8A020
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for detail.
+
+---
+
+## WebAssembly export
+
+`export_wasm` retargets the same typed LLVM IR to `wasm32` (or `wasm64`) and writes everything needed to run the kernel in a browser or Node:
+
+```python
+from hanajit import jit
+
+@jit
+def sum_squares(n):
+    total = 0.0
+    for i in range(n):
+        total += i * i
+    return total
+
+sum_squares(10)                          # compile first (or pass sig=)
+out = sum_squares.export_wasm("out/ss")  # WasmExport(ll, s, mjs, build, wasm)
+```
+
+- **`<prefix>.ll`** — the kernel retargeted to `wasm32-unknown-unknown` (clang input).
+- **`<prefix>.s`** — WebAssembly assembly emitted by LLVM's wasm backend, for inspection.
+- **`<prefix>.mjs`** — an ES-module loader: instantiates the module and maps libm calls (`sin`, `exp`, …) to JavaScript `Math` imports. At the JS boundary `i64` is `BigInt`, `f64`/`bool` are `Number`.
+- **`<prefix>.build.sh`** — the exact clang command (`--target=wasm32 … -Wl,--export=<fn>`). Any standard clang has the WebAssembly backend; no Emscripten needed.
+- **`<prefix>.wasm`** — the linked module, produced automatically when clang is on PATH (or `HANAJIT_WASM_CLANG` points to one); otherwise run the build script.
+
+`inspect_wasm()` returns `(text, native)` — the assembly text without touching disk. `export_wasm(prefix, sig="f64, f64")` exports a specialization without calling the function first. Pass `bits=64` for `wasm64`.
 
 ---
 
@@ -401,50 +439,49 @@ See [`docs/architecture.md`](docs/architecture.md) for detail.
 
 An FPGA is not a processor that executes an instruction stream; it is reconfigurable hardware. An algorithm targeting an FPGA is synthesized into a circuit — loops become pipelined datapaths, multiplies map to DSP blocks, arrays to on-chip memory. Synthesis requires a licensed toolchain and produces a bitstream that configures the device. This process is ahead-of-time and cannot be performed just-in-time.
 
-Hana Jit's role is limited to producing HLS-compatible LLVM IR. The `export_fpga` method writes two files:
+Hana Jit exports a complete Vitis HLS project kit. The `export_fpga` method writes up to four files:
 
 ```python
 from hanajit import jit
 
-@jit
+@jit(signature="f64*, f64*, f64, i64")
 def saxpy(y, x, a, n):
     for i in range(n):
         y[i] = a * x[i] + y[i]
     return 0
 
-saxpy(y, x, 2.0, len(y))                 # compile first
-ll_path, tcl_path = saxpy.export_fpga("out/saxpy")
-print(ll_path)    # out/saxpy.ll        — self-contained LLVM IR
-print(tcl_path)   # out/saxpy_hls.tcl   — a Vitis HLS project script
+out = saxpy.export_fpga("out/saxpy")     # FpgaExport(ll, tcl, cpp, tb)
+print(out.cpp)    # out/saxpy_hls.cpp   — synthesizable HLS C++ top function
+print(out.tcl)    # out/saxpy_hls.tcl   — runnable Vitis HLS script
 ```
 
-- **`<prefix>.ll`** is the typed LLVM IR used by the CPU and GPU backends. The FPGA HLS tools accept this format: AMD/Xilinx Vitis HLS is built on LLVM and ingests IR through its front-end flow, and LLVM's [CIRCT](https://circt.llvm.org/) project lowers LLVM IR to hardware dialects (FIRRTL/Calyx) and emits Verilog.
-- **`<prefix>_hls.tcl`** is a Vitis HLS project script that sets the top function, targets a board (an Alveo U250 by default), sets a clock constraint, runs synthesis, and exports an IP block. It is a scaffold to be tuned with HLS pragmas.
+- **`<prefix>_hls.cpp`** — the kernel transpiled from the typed Python AST to synthesizable C++ (the same way the Metal backend transpiles to MSL), with HLS pragmas already in place: `PIPELINE II=1` on innermost loops, `m_axi` interfaces for pointer arguments, `s_axilite` for scalars and control. Vitis HLS synthesizes this directly — the turnkey route.
+- **`<prefix>_tb.cpp`** — a C-simulation testbench for `csim_design`.
+- **`<prefix>_hls.tcl`** — a runnable project script: `csim → csynth → export_design`, targeting an Alveo U250 at 3.3 ns by default. Both are parameters: `export_fpga(prefix, part="xcvu9p-…", clock_ns=5.0)`.
+- **`<prefix>.ll`** — the typed LLVM IR, for IR-level flows: AMD/Xilinx Vitis HLS ingests IR through its LLVM front-end flow, and LLVM's [CIRCT](https://circt.llvm.org/) project lowers LLVM IR to hardware dialects (FIRRTL/Calyx) and emits Verilog.
+
+Kernels outside the transpilable subset (e.g. NumPy-array signatures — use raw-pointer signatures like `"f64*"` instead) still export `.ll` plus a TCL stub; `out.cpp` and `out.tb` are `None`.
 
 ### Testing the FPGA export
 
 The export can be tested without FPGA hardware or a licensed toolchain:
 
 ```python
-import numpy as np
 from hanajit import jit
 
-@jit
+@jit(signature="f64*, f64*, i64")
 def dot(a, b, n):
     s = 0.0
     for i in range(n):
         s += a[i] * b[i]
     return s
 
-a = np.ones(64); b = np.ones(64)
-dot(a, b, 64)                                    # compile
-ll, tcl = dot.export_fpga("dot_export")          # writes dot_export.ll + .tcl
-
-print(open(ll).read()[:400])                     # LLVM IR
-print(open(tcl).read())                          # Vitis HLS script
+out = dot.export_fpga("dot_export")
+print(open(out.cpp).read())                      # HLS C++ with pragmas
+print(open(out.tcl).read())                      # Vitis HLS script
 ```
 
-With the Vitis toolchain and a board, the next step is `vitis_hls -f dot_export_hls.tcl`, followed by place-and-route to a bitstream — steps that occur in AMD's tools, outside Hana Jit. The export path is tested (the files are written and the IR is self-contained); no bitstream is produced in CI, as that requires Vitis and hardware.
+With the Vitis toolchain and a board, the next step is `vitis_hls -f dot_export_hls.tcl`, followed by place-and-route to a bitstream — steps that occur in AMD's tools, outside Hana Jit. The export path is tested (the files are written, the C++ is self-contained, and the IR is self-contained); no bitstream is produced in CI, as that requires Vitis and hardware.
 
 ---
 
@@ -454,9 +491,13 @@ With the Vitis toolchain and a board, the next step is `vitis_hls -f dot_export_
 
 **Falls back to the interpreter** (with one warning): allocating new arrays inside a kernel, most of the object model (classes, dictionaries, arbitrary objects), generators, exceptions as control flow, string manipulation, `float16`/`complex` dtypes, and the remainder of the NumPy API. Hana Jit targets numeric kernels; code outside that scope runs in the interpreter.
 
-**GPU is code generation only.** Hana Jit emits GPU assembly for four targets — NVIDIA (PTX), AMD (GCN), Intel (SPIR-V), and Apple (Metal) — and this output is validated by the vendor toolchains: NVIDIA `ptxas` assembles the PTX into a cubin, LLVM's AMDGPU `llvm-mc` assembles the GCN into an object file, and `xcrun metal` compiles the Metal source on Apple Silicon. Hana Jit does not launch kernels on a GPU. The host-side machinery to allocate device memory, transfer data, and dispatch the kernel (`cuLaunchKernel` and equivalents) is not implemented. The GPU backends are a validated compiler target, not a runtime. Documentation describes this as "emits and assembles," not "runs on GPU."
+**GPU is code generation only.** Hana Jit emits GPU code for five targets — NVIDIA (PTX), AMD (GCN), Intel (OpenCL-flavor SPIR-V), Vulkan (shader-flavor SPIR-V), and Apple (Metal) — and this output is validated by the vendor toolchains: NVIDIA `ptxas` assembles the PTX into a cubin, LLVM's AMDGPU `llvm-mc` assembles the GCN into an object file, and `xcrun metal` compiles the Metal source on Apple Silicon. Hana Jit does not launch kernels on a GPU. The host-side machinery to allocate device memory, transfer data, and dispatch the kernel (`cuLaunchKernel` and equivalents) is not implemented. The GPU backends are a validated compiler target, not a runtime. Documentation describes this as "emits and assembles," not "runs on GPU."
 
-**FPGA is export only** — see the section above. It writes IR and an HLS script; synthesis occurs in external tools.
+**Vulkan SPIR-V emission is best-effort.** LLVM's shader-flavor SPIR-V backend rejects constructs that are routine in the other targets (notably buffer indexing under logical addressing), so emission runs in an isolated subprocess: kernels it accepts yield real `GLCompute` SPIR-V; the rest fall back to annotated LLVM IR (`hlsl.shader`/`hlsl.numthreads` attributes in place) for offline lowering. The workgroup size is fixed at compile time (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`), and `block_dim()` folds to that constant.
+
+**WebAssembly is export only.** `export_wasm` writes retargeted IR, wasm assembly, a JS loader, and a build script; the final `.wasm` link needs any standard clang (run automatically when found). Hana Jit does not embed a wasm runtime.
+
+**FPGA is export only** — see the section above. It writes synthesizable HLS C++, a testbench, IR, and an HLS script; synthesis occurs in external tools.
 
 **Numerical behavior:** `reduce_reassoc` reorders float additions (as NumPy does), so results are not bit-identical to a sequential sum but remain within NumPy-level tolerance; integers are unaffected. `float32` carries float32 precision. `evolve_hyper` does not guarantee correctness on untested inputs.
 
@@ -499,6 +540,16 @@ python -m pytest tests/ -q
 ```
 
 New optimizations must include tests that verify the result against a reference before any performance claim. Contributions are accepted under the repository's license.
+
+---
+
+## Contact
+
+Hana Jit is developed by **Iqbal Addou** at [EZducate](https://www.ezducate.ai) ([www.ezducate.ai](https://www.ezducate.ai)).
+
+- Email: [iqbal.addou@gmail.com](mailto:iqbal.addou@gmail.com)
+- Work: [cto@ezducate.ai](mailto:cto@ezducate.ai)
+- Issues: [github.com/ezducate/HanaJit/issues](https://github.com/ezducate/HanaJit/issues)
 
 ---
 

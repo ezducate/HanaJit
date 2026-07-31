@@ -988,6 +988,21 @@ class CodeGen:
             aty, comps = self._arr_of(node.args[0], "len()")
             return self._arr_len(aty, comps), I64
         if fname in GPU_INTRINSICS:
+            # Vulkan: SPIR-V shader-flavor builtins take a dimension index
+            # argument (0 = x), unlike the no-arg sregs of cuda/amd.
+            # block_dim is the LocalSize execution mode — a compile-time
+            # constant (hlsl.numthreads), not a runtime read.
+            if self.gpu == "vulkan":
+                i32 = ir.IntType(32)
+                if fname == "block_dim":
+                    from .backends.gpu import vulkan_local_size
+                    x = int(vulkan_local_size().split(",")[0])
+                    return ir.Constant(LLTY[I64], x), I64
+                name = {"thread_id": "llvm.spv.thread.id.in.group",
+                        "block_id": "llvm.spv.group.id"}[fname]
+                f = self.intrinsic(name, i32, [i32])
+                return b.zext(b.call(f, [ir.Constant(i32, 0)]),
+                              LLTY[I64]), I64
             # AMDGPU has no direct block_dim sreg: read workgroup_size.x from
             # the HSA dispatch packet (offset 4, i16). Verified against real
             # llvm-mc/llc for gfx90a.

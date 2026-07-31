@@ -6,7 +6,7 @@ Decorator returning a JIT-dispatching callable.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `target` | `"cpu"` | `"cpu"`, `"cuda"`, `"amd"`, `"intel"`, `"metal"`, or `"auto"`. GPU targets emit device code (see gpu.md); `"auto"` resolves per kernel via hardware detection. |
+| `target` | `"cpu"` | `"cpu"`, `"cuda"`, `"amd"`, `"intel"`, `"vulkan"`, `"metal"`, or `"auto"`. GPU targets emit device code (see gpu.md); `"auto"` resolves per kernel via hardware detection. |
 | `fallback` | `True` | On `UnsupportedError`, run the original Python function (with one warning). `False` raises instead. |
 | `cache` | `False` | Persist compiled machine code to disk; later processes warm-start (see performance.md). |
 | `nogil` | `False` | Release the GIL around the native kernel call. Kernels are pure native code, so this is always safe; it enables true multi-core threading. |
@@ -23,7 +23,9 @@ Decorator returning a JIT-dispatching callable.
 | `f.inspect_llvm(sig=None)` | LLVM IR text of a compiled specialization. Unavailable for disk-cache hits (codegen was skipped). |
 | `f.inspect_asm(sig=None)` | Host-native assembly. |
 | `f.inspect_gpu()` | `(vendor, device_code, native)` after a GPU-target compile. `native=True` means real PTX/GCN/SPIR-V; `False` means annotated IR or MSL source. |
-| `f.export_fpga(prefix)` | Writes `<prefix>.ll` + a Vitis HLS TCL stub; returns the paths. |
+| `f.inspect_wasm(sig=None, bits=32)` | `(text, native)` — WebAssembly assembly for a specialization (`native=False` → retargeted IR). |
+| `f.export_wasm(prefix, sig=None, bits=32)` | Writes `<prefix>.ll` (wasm-retargeted IR), `.s` (wasm assembly), `.mjs` (JS loader), `.build.sh` (clang command), and `.wasm` when clang is on PATH. Returns a `WasmExport` namedtuple of paths. |
+| `f.export_fpga(prefix, sig=None, part=None, clock_ns=None)` | Writes `<prefix>.ll`, `<prefix>_hls.cpp` (synthesizable HLS C++ with pragmas), `<prefix>_tb.cpp` (csim testbench), and `<prefix>_hls.tcl` (runnable Vitis script). Returns an `FpgaExport` namedtuple; `cpp`/`tb` are `None` outside the transpilable subset. |
 | `f.cache` / `f._fast` / `f.modules` | Introspection dicts: abstract-signature → callable, Python-type-tuple → callable, signature → IR module. |
 
 ## NumPy arrays as arguments
@@ -117,6 +119,11 @@ copies. Not available for disk-cache-hit specializations (no IR retained).
 
 - `HANAJIT_CACHE_DIR` — disk-cache location (default `~/.cache/hanajit`).
 - `HANAJIT_TARGET` — force detection results (e.g. `HANAJIT_TARGET=cpu`).
+- `HANAJIT_CUDA_ARCH` / `HANAJIT_AMD_ARCH` / `HANAJIT_INTEL_ARCH` /
+  `HANAJIT_VULKAN_ARCH` — GPU architecture overrides.
+- `HANAJIT_VULKAN_LOCAL_SIZE` — Vulkan workgroup size `"x,y,z"`
+  (default `64,1,1`); `block_dim()` folds to its x component.
+- `HANAJIT_WASM_CLANG` — clang executable used to link `.wasm` exports.
 
 ## Compilable subset (v0.x)
 
