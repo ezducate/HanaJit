@@ -48,13 +48,13 @@ class Lazy:
     def __init__(self, ety, n, gen):
         self.ety, self.n, self.gen = ety, n, gen
 
-# per-vendor thread intrinsics (all return i32)
+# per-vendor thread intrinsic stems (".x"/".y"/".z" appended; all i32)
 GPU_LOWER = {
-    "cuda": {"thread_id": "llvm.nvvm.read.ptx.sreg.tid.x",
-             "block_id": "llvm.nvvm.read.ptx.sreg.ctaid.x",
-             "block_dim": "llvm.nvvm.read.ptx.sreg.ntid.x"},
-    "amd":  {"thread_id": "llvm.amdgcn.workitem.id.x",
-             "block_id": "llvm.amdgcn.workgroup.id.x"},
+    "cuda": {"thread_id": "llvm.nvvm.read.ptx.sreg.tid",
+             "block_id": "llvm.nvvm.read.ptx.sreg.ctaid",
+             "block_dim": "llvm.nvvm.read.ptx.sreg.ntid"},
+    "amd":  {"thread_id": "llvm.amdgcn.workitem.id",
+             "block_id": "llvm.amdgcn.workgroup.id"},
 }
 
 
@@ -261,7 +261,11 @@ class CodeGen:
         self.builder.ret(self.cast(val, ty, self.ret_type))
 
     def stmt_Expr(self, node):
-        pass
+        # docstrings etc. are dropped; side-effect intrinsics must emit
+        v = node.value
+        if (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                and v.func.id in ("barrier", "atomic_add")):
+            self.expr(v)
 
     def stmt_Pass(self, node):
         pass
@@ -987,42 +991,89 @@ class CodeGen:
         if fname == "len":
             aty, comps = self._arr_of(node.args[0], "len()")
             return self._arr_len(aty, comps), I64
+        if fname in ("shared_f64", "shared_i64"):
+            # workgroup-shared array: addrspace(3) global, undef-init
+            # (NVPTX/AMDGPU reject initialized shared memory), accessed
+            # through a generic pointer so normal x[i] codegen applies.
+            if self.gpu not in ("cuda", "amd"):
+                raise UnsupportedError(
+                    "shared_*() requires a cuda/amd kernel here (intel/"
+                    "vulkan kernels get it via the SPIR-V generator)")
+            n = node.args[0].value
+            ety = F64 if fname == "shared_f64" else I64
+            shared_ty = ir.ArrayType(LLTY[ety], n)
+            gv = ir.GlobalVariable(self.module, shared_ty,
+                                   name=f"__hana_shared_{len(self.module.global_values)}",
+                                   addrspace=3)
+            gv.linkage = "internal"
+            gv.initializer = ir.Constant(shared_ty, ir.Undefined)
+            z = ir.Constant(ir.IntType(32), 0)
+            p3 = b.gep(gv, [z, z])
+            p = b.addrspacecast(p3, LLTY[ety].as_pointer())
+            return p, (PF64 if ety == F64 else PI64)
+        if fname == "barrier":
+            bar = {"cuda": "llvm.nvvm.barrier0",
+                   "amd": "llvm.amdgcn.s.barrier"}.get(self.gpu)
+            if bar is None:
+                raise UnsupportedError(
+                    "barrier() requires a cuda/amd kernel here (intel/"
+                    "vulkan kernels get it via the SPIR-V generator)")
+            f = self.intrinsic(bar, ir.VoidType(), [])
+            b.call(f, [])
+            return ir.Constant(LLTY[I64], 0), I64
+        if fname == "atomic_add":
+            base, bty = self.expr(node.args[0])
+            if bty not in POINTER_ELEM:
+                raise UnsupportedError(
+                    "atomic_add: first argument must be a pointer")
+            ety = POINTER_ELEM[bty]
+            idx = self.cast(*self.expr(node.args[1]), I64)
+            val = self.cast(*self.expr(node.args[2]), ety)
+            ptr = b.gep(base, [idx])
+            op = "fadd" if ety == F64 else "add"
+            try:
+                old = b.atomic_rmw(op, ptr, val, ordering="monotonic")
+            except (ValueError, KeyError) as e:
+                raise UnsupportedError(f"atomic_add: {e}")
+            return old, ety
         if fname in GPU_INTRINSICS:
+            from .typeinfer import gpu_intrinsic_axis
+            stem, axis = gpu_intrinsic_axis(fname)
+            ax = "xyz"[axis]
             # Vulkan: SPIR-V shader-flavor builtins take a dimension index
-            # argument (0 = x), unlike the no-arg sregs of cuda/amd.
-            # block_dim is the LocalSize execution mode — a compile-time
-            # constant (hlsl.numthreads), not a runtime read.
+            # argument, unlike the no-arg sregs of cuda/amd. block_dim is
+            # the LocalSize execution mode — a compile-time constant
+            # (hlsl.numthreads), not a runtime read.
             if self.gpu == "vulkan":
                 i32 = ir.IntType(32)
-                if fname == "block_dim":
+                if stem == "block_dim":
                     from .backends.gpu import vulkan_local_size
-                    x = int(vulkan_local_size().split(",")[0])
-                    return ir.Constant(LLTY[I64], x), I64
+                    v = int(vulkan_local_size().split(",")[axis])
+                    return ir.Constant(LLTY[I64], v), I64
                 name = {"thread_id": "llvm.spv.thread.id.in.group",
-                        "block_id": "llvm.spv.group.id"}[fname]
+                        "block_id": "llvm.spv.group.id"}[stem]
                 f = self.intrinsic(name, i32, [i32])
-                return b.zext(b.call(f, [ir.Constant(i32, 0)]),
+                return b.zext(b.call(f, [ir.Constant(i32, axis)]),
                               LLTY[I64]), I64
-            # AMDGPU has no direct block_dim sreg: read workgroup_size.x from
-            # the HSA dispatch packet (offset 4, i16). Verified against real
-            # llvm-mc/llc for gfx90a.
-            if self.gpu == "amd" and fname == "block_dim":
-                i32 = ir.IntType(32)
+            # AMDGPU has no direct block_dim sreg: read workgroup_size
+            # from the HSA dispatch packet (i16 x/y/z at offsets 4/6/8).
+            # Verified against real llvm-mc/llc for gfx90a.
+            if self.gpu == "amd" and stem == "block_dim":
                 i16p = ir.IntType(16).as_pointer(4)
                 i8p4 = ir.IntType(8).as_pointer(4)
                 dp = self.intrinsic("llvm.amdgcn.dispatch.ptr", i8p4, [])
                 ptr = b.call(dp, [])
-                gep = b.gep(ptr, [ir.Constant(LLTY[I64], 4)])
+                gep = b.gep(ptr, [ir.Constant(LLTY[I64], 4 + 2 * axis)])
                 p16 = b.bitcast(gep, i16p)
                 wgs = b.load(p16)
-                wgs.align = 4
+                wgs.align = 2
                 return b.zext(wgs, LLTY[I64]), I64
             table = GPU_LOWER.get(self.gpu)
-            if table is None or fname not in table:
+            if table is None or stem not in table:
                 raise UnsupportedError(
                     f"{fname}() requires a GPU target with that intrinsic "
-                    f"(cuda: all three; amd: thread_id/block_id/block_dim)")
-            f = self.intrinsic(table[fname], ir.IntType(32), [])
+                    f"(cuda: all; amd: thread_id/block_id/block_dim)")
+            f = self.intrinsic(f"{table[stem]}.{ax}", ir.IntType(32), [])
             return b.zext(b.call(f, []), LLTY[I64]), I64
         if fname == "abs":
             v, ty = self.expr(node.args[0])

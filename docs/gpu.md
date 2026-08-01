@@ -1,9 +1,95 @@
 # GPU targets
 
-All GPU targets are **device-code emission** today: they produce inspectable,
-offline-compilable kernels. Host-side launch bridges (device memory, copies,
-grid launch) are the top roadmap item; until they land, calling a GPU-target
-function on the host falls back to CPython.
+GPU-target kernels both **emit** inspectable device code and **execute**
+on the device via `f.launch()`. Calling the function directly (`f(...)`)
+still falls back to CPython — device execution is always explicit.
+
+## Executing kernels: `f.launch()`
+
+```python
+import numpy as np
+from hanajit import jit
+
+@jit(target="cuda", signature="f64*, f64*, f64, i64")   # or intel/vulkan/amd/metal
+def saxpy(y, x, a, n):
+    i = block_id() * block_dim() + thread_id()
+    if i < n:
+        y[i] = a * x[i] + y[i]
+    return 0
+
+y = np.random.rand(1_000_000); x = np.random.rand(1_000_000)
+saxpy.launch(y, x, 2.0, len(y))          # grid derived from len(y)
+saxpy.launch(y, x, 2.0, len(y), grid=4096, block=128)
+```
+
+Arrays (1-D contiguous f64/i64) are copied to the device, the kernel runs
+over `grid x block` threads, and arrays are copied back — in-place writes
+are visible on the host afterwards. `block` defaults to 256; `grid`
+defaults to `ceil(len(first_array)/block)`.
+
+Each vendor bridge is pure ctypes over the driver's own library — no SDK
+or build step:
+
+| target | runtime library | device code | validated on |
+|---|---|---|---|
+| `cuda` | `nvcuda` (driver API) | emitted PTX, driver-JITed | RTX 2080 Max-Q |
+| `intel` | `ze_loader` (Level Zero) | OpenCL-flavor SPIR-V from hanajit's own generator | UHD Graphics 630 |
+| `vulkan` | `vulkan-1` | shader-flavor SPIR-V from the same generator | RTX 2080 Max-Q |
+| `amd` | `amdhip64` (HIP) | GCN text assembled by clang into an HSA code object | code-complete, awaiting AMD hardware |
+| `metal` | Metal.framework (macOS) | transpiled MSL compiled at runtime | code-complete, awaiting Apple hardware |
+
+### Async launches
+
+`f.launch(..., sync=False)` queues the kernel and returns immediately;
+`f.synchronize()` (or `DeviceArray.to_host()`, which synchronizes first)
+waits for completion. Async launches require DeviceArray pointer
+arguments — transient numpy arrays imply a synchronous copy-back and are
+refused with a clear error.
+
+```python
+for step in range(1000):
+    integrate.launch(state_d, forces_d, dt, n, sync=False)
+integrate.synchronize()
+result = state_d.to_host()
+```
+
+### Resident device buffers
+
+Every plain launch copies all arrays both ways. To keep data on the GPU
+across launches:
+
+```python
+xd = saxpy.to_device(x)          # upload once
+yd = saxpy.to_device(y)
+for _ in range(100):
+    saxpy.launch(yd, xd, 2.0, n) # no copies: ~0.2 ms vs ~17 ms (CUDA, 2M)
+result = yd.to_host()            # explicit readback
+xd.free(); yd.free()             # or let GC handle it
+```
+
+Execution caveats (honest list):
+
+- **cuda**: sin/cos/exp/log/pow are linked from NVIDIA's libdevice when
+  one is found (CUDA toolkit, `CUDA_PATH`, `HANAJIT_LIBDEVICE`, or
+  `pip install hanajit[cuda-math]`) and then run at full f64 precision;
+  without libdevice, kernels using them refuse to launch with a clear
+  error. sqrt, fabs, floor, ceil always lower to native PTX.
+- **vulkan**: trig/exp/pow evaluate at float32 (GLSL.std.450 defines them
+  for 16/32-bit floats only); everything else is f64. Requires a Vulkan
+  1.1 device exposing `shaderFloat64` and `shaderInt64`. Integer
+  remainders avoid `OpSRem` entirely — NVIDIA's driver evaluates 64-bit
+  `OpSRem` as an *unsigned* remainder — so Python floor-division/modulo
+  semantics hold on every driver.
+- **metal**: all f64 computes at float32 (Metal has no double); f64
+  arrays round-trip through a float32 copy.
+- **amd**: needs any clang on PATH (`HANAJIT_HIP_CLANG` overrides) to
+  assemble the code object.
+- Every launch copies all arrays both ways; resident device buffers are
+  on the roadmap.
+
+`hanajit.backends.rt.get_runtime(vendor)` returns the bridge or None;
+`why_unavailable(vendor)` explains a None (no driver, no device, missing
+tool).
 
 ## Writing a GPU kernel
 
@@ -21,7 +107,52 @@ vendor, code, native = saxpy.inspect_gpu()
 ```
 
 `signature=` is required (GPU kernels are never type-inferred from a host
-call). Intrinsics: `thread_id()`, `block_id()`, `block_dim()`.
+call). Intrinsics: `thread_id()`, `block_id()`, `block_dim()`, plus:
+
+- `s = shared_f64(N)` / `shared_i64(N)` — workgroup-shared array
+  (N is a compile-time literal). Index it like any pointer: `s[tid]`.
+- `barrier()` — synchronize the workgroup (call it from uniform control
+  flow, i.e. outside thread-dependent branches).
+- `atomic_add(buf, i, v)` — atomically add `v` to `buf[i]`, returning
+  the old value. f64/i64 on every target: `atomicrmw` (cuda/amd), a
+  compare-exchange loop (intel), native atomics with the required
+  device features auto-enabled (vulkan — a device without Vulkan 1.2
+  int64 atomics / `VK_EXT_shader_atomic_float` gets an error naming
+  the missing feature). Not available on metal (MSL lacks 64-bit
+  atomics).
+- 2-D/3-D indexing: `thread_id_y()`/`block_id_y()`/`block_dim_y()` and
+  `_z` variants; pass tuples to `grid=`/`block=`.
+
+Device selection on multi-GPU machines: `HANAJIT_CUDA_DEVICE=1` (also
+`HANAJIT_INTEL_DEVICE` / `HANAJIT_VULKAN_DEVICE` / `HANAJIT_AMD_DEVICE`)
+picks the device ordinal; Vulkan prefers the discrete GPU when unset.
+`python -m hanajit.doctor` includes a **launch** section that runs a
+real kernel on every available bridge and names the device it used.
+
+The portable reduction pattern (no atomics needed) — each workgroup
+tree-reduces in shared memory, partial sums are combined on the host:
+
+```python
+@jit(target="cuda", signature="f64*, f64*, f64*, i64")
+def dot_partials(partials, a, b, n):
+    tid = thread_id()
+    i = block_id() * block_dim() + tid
+    s = shared_f64(256)
+    acc = 0.0
+    if i < n:
+        acc = a[i] * b[i]
+    s[tid] = acc
+    barrier()
+    step = 128
+    while step > 0:
+        if tid < step:
+            s[tid] = s[tid] + s[tid + step]
+        barrier()
+        step = step // 2
+    if tid == 0:
+        partials[block_id()] = s[0]
+    return 0
+```
 
 ## Per-vendor specifics
 

@@ -7,8 +7,15 @@ pip install -e .[test]
 pytest -q                      # full suite
 pytest tests/test_numerics.py  # differential correctness only
 pytest -q -k "gpu"             # GPU emission tests only
+pytest tests/test_launch.py    # GPU execution (skips per-vendor without hardware)
 pytest -q -k "cache or nogil"  # caching + threading
 ```
+
+GPU execution tests (`test_launch.py`) run real kernels through the
+runtime bridges and skip cleanly, vendor by vendor, on machines without
+the corresponding driver — CI runners have no GPUs, so hardware claims
+come from local runs (`python -m hanajit.doctor` prints a per-vendor
+launch report for your machine).
 
 Layout:
 - `tests/test_basic.py` — compilation, dispatch modes, multi-signature
@@ -126,10 +133,12 @@ hanajit accepts llvmlite >= 0.42 and handles both pass-manager APIs.
   host). For the GPU path: `python examples/metal_check.py` compiles a
   generated kernel with Apple's real Metal compiler (needs Xcode CLT).
 - **AMD GPUs (no hardware)**: GCN emission is covered by
-  `pytest -k gpu_thread_indexing_amd`. Actual execution requires ROCm on
-  AMD hardware — the realistic options are a cloud MI300X/MI250 instance
+  `pytest -k gpu_thread_indexing_amd`, and the HIP launch bridge is
+  code-complete (`pytest tests/test_launch.py -k amd` — skips without
+  hardware). Actual execution requires the HIP runtime plus clang on AMD
+  hardware — the realistic options are a cloud MI300X/MI250 instance
   (AMD Developer Cloud, or DigitalOcean's AMD GPU droplets) for a one-off
-  validation, or leaving the backend marked emission-only until a
+  validation, or leaving the bridge marked unvalidated until a
   contributor with hardware confirms it.
 
 ## Accuracy contract

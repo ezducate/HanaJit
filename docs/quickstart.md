@@ -45,6 +45,12 @@ instead. Your code never breaks; it just doesn't accelerate that function.
      signature="f64*, f64*, f64, i64")
 ```
 
+GPU-target kernels execute on the device with `f.launch(*args)` —
+arrays are copied over and back automatically; `f.to_device(arr)` keeps
+them resident across launches. See gpu.md for kernels, intrinsics
+(`thread_id()`, `shared_f64(N)`, `barrier()`, `atomic_add()`), async
+launches, and per-vendor status.
+
 ## Quick wins checklist
 
 - Hot numeric loop in a request handler / script? `@jit(nogil=True)`.

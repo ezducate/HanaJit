@@ -70,7 +70,7 @@ Hana Jit was developed in the R&D pipeline at [EZducate](https://ezducate.ai) to
 
 ## Status
 
-Hana Jit is alpha software. The CPU compiler is stable and tested: **236 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU support is code generation only — it emits GPU code that vendor toolchains accept, but does not yet launch kernels on a GPU; WebAssembly and FPGA are export paths for external toolchains (see [Limitations](#limitations)). APIs may change before 1.0; pin a version if you depend on it.
+Hana Jit is alpha software. The CPU compiler is stable and tested: **270 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU kernels execute on-device via `f.launch()` through ctypes driver bridges — CUDA, Level Zero, and Vulkan validated on real hardware; HIP and Metal code-complete (see [Limitations](#limitations)). WebAssembly and FPGA are export paths for external toolchains. APIs may change before 1.0; pin a version if you depend on it.
 
 ---
 
@@ -90,7 +90,7 @@ pip install hanajit
 pip install "git+https://github.com/ezducate/HanaJit.git"
 
 # pin to a released tag
-pip install "git+https://github.com/ezducate/HanaJit.git@v0.20.1"
+pip install "git+https://github.com/ezducate/HanaJit.git@v0.23.0"
 ```
 
 **For development:**
@@ -363,11 +363,11 @@ Hana Jit is approximately 3,000 lines of Python. One intermediate representation
 flowchart TD
     IR["Typed LLVM IR<br/>(one module)"] --> OPT["LLVM -O3"]
     OPT --> CPU["CPU backend<br/>JIT → runs now ✓"]
-    OPT --> NV["NVIDIA → PTX<br/>ptxas → cubin ✓ emit-only"]
-    OPT --> AMD["AMD → GCN<br/>llvm-mc → object ✓ emit-only"]
-    OPT --> INT["Intel → SPIR-V<br/>emit-only"]
-    OPT --> VLK["Vulkan → SPIR-V GLCompute<br/>emit-only"]
-    OPT --> APL["Apple → Metal<br/>xcrun metal ✓ emit-only"]
+    OPT --> NV["NVIDIA → PTX<br/>launch() via nvcuda ✓"]
+    OPT --> AMD["AMD → GCN<br/>launch() via HIP + clang"]
+    OPT --> INT["Intel → SPIR-V<br/>launch() via Level Zero ✓"]
+    OPT --> VLK["Vulkan → SPIR-V GLCompute<br/>launch() via vulkan-1 ✓"]
+    OPT --> APL["Apple → Metal<br/>launch() via Metal.framework"]
     OPT --> WASM["WebAssembly → .ll/.s + JS loader<br/>clang links .wasm"]
     OPT --> FPGA["FPGA → HLS C++ + IR + TCL<br/>export-only"]
     style CPU fill:#EAEBF6,stroke:#2B3FC4
@@ -380,7 +380,7 @@ flowchart TD
     style FPGA fill:#FBF0DD,stroke:#E8A020
 ```
 
-The CPU backend runs compiled code directly. The GPU backends emit and assemble vendor-valid code but do not launch kernels (see [Limitations](#limitations)); the WebAssembly and FPGA paths export artifacts for external toolchains (clang / Vitis HLS).
+The CPU backend runs compiled code directly. GPU kernels emit inspectable device code *and* execute on the device through `f.launch()` — pure-ctypes bridges over the vendor driver libraries, no SDK required (see [GPU execution](#gpu-execution) and [Limitations](#limitations)). The WebAssembly and FPGA paths export artifacts for external toolchains (clang / Vitis HLS).
 
 
 
@@ -404,6 +404,71 @@ flowchart LR
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for detail.
+
+---
+
+## GPU execution
+
+GPU-target kernels run on the device with `f.launch()`. Each vendor bridge is pure ctypes over the library the GPU driver already installs — no CUDA toolkit, no Vulkan SDK, no build step:
+
+```python
+import numpy as np
+from hanajit import jit
+
+@jit(target="cuda", signature="f64*, f64*, f64, i64")   # or "intel", "vulkan", "amd", "metal"
+def saxpy(y, x, a, n):
+    i = block_id() * block_dim() + thread_id()
+    if i < n:
+        y[i] = a * x[i] + y[i]
+    return 0
+
+y = np.random.rand(1_000_000); x = np.random.rand(1_000_000)
+saxpy.launch(y, x, 2.0, len(y))          # arrays copied over, kernel runs, results copied back
+```
+
+Keep data resident and launch asynchronously for tight iteration loops:
+
+```python
+yd, xd = saxpy.to_device(y), saxpy.to_device(x)   # upload once
+for _ in range(1000):
+    saxpy.launch(yd, xd, 0.01, len(y), sync=False)  # ~0.2 ms/launch on CUDA
+saxpy.synchronize()
+result = yd.to_host()
+```
+
+Kernels have workgroup-shared memory, barriers, atomics, and 2-D/3-D thread indexing — enough for the standard reduction patterns:
+
+```python
+@jit(target="cuda", signature="f64*, f64*, f64*, i64")
+def dot_partials(partials, a, b, n):
+    tid = thread_id()
+    i = block_id() * block_dim() + tid
+    s = shared_f64(256)                   # workgroup-shared array
+    acc = 0.0
+    if i < n:
+        acc = a[i] * b[i]
+    s[tid] = acc
+    barrier()
+    step = 128
+    while step > 0:                       # tree reduction in shared memory
+        if tid < step:
+            s[tid] = s[tid] + s[tid + step]
+        barrier()
+        step = step // 2
+    if tid == 0:
+        partials[block_id()] = s[0]
+    return 0
+```
+
+| target | driver library | validated on |
+|---|---|---|
+| `cuda` | `nvcuda` (driver API; PTX driver-JITed) | RTX 2080 Max-Q — bit-exact vs NumPy |
+| `intel` | `ze_loader` (Level Zero; hanajit's own SPIR-V generator) | UHD Graphics 630 — bit-exact |
+| `vulkan` | `vulkan-1` (vendor-neutral; any 1.1 device with f64/i64 shaders) | RTX 2080 Max-Q — bit-exact |
+| `amd` | `amdhip64` (HIP; GCN assembled by clang) | code-complete, awaiting AMD hardware |
+| `metal` | Metal.framework (macOS; runtime-compiled MSL) | code-complete, awaiting Apple hardware |
+
+CUDA transcendentals (sin/exp/log/pow) link NVIDIA's libdevice automatically when found — `pip install hanajit[cuda-math]` provides it without a CUDA toolkit. Full details, caveats, and multi-GPU selection: [`docs/gpu.md`](docs/gpu.md).
 
 ---
 
@@ -491,7 +556,7 @@ With the Vitis toolchain and a board, the next step is `vitis_hls -f dot_export_
 
 **Falls back to the interpreter** (with one warning): allocating new arrays inside a kernel, most of the object model (classes, dictionaries, arbitrary objects), generators, exceptions as control flow, string manipulation, `float16`/`complex` dtypes, and the remainder of the NumPy API. Hana Jit targets numeric kernels; code outside that scope runs in the interpreter.
 
-**GPU is code generation only.** Hana Jit emits GPU code for five targets — NVIDIA (PTX), AMD (GCN), Intel (OpenCL-flavor SPIR-V), Vulkan (shader-flavor SPIR-V), and Apple (Metal) — and this output is validated by the vendor toolchains: NVIDIA `ptxas` assembles the PTX into a cubin, LLVM's AMDGPU `llvm-mc` assembles the GCN into an object file, and `xcrun metal` compiles the Metal source on Apple Silicon. Hana Jit does not launch kernels on a GPU. The host-side machinery to allocate device memory, transfer data, and dispatch the kernel (`cuLaunchKernel` and equivalents) is not implemented. The GPU backends are a validated compiler target, not a runtime. Documentation describes this as "emits and assembles," not "runs on GPU."
+**GPU execution is explicit and experimental.** `f.launch(*args, grid=, block=)` executes a GPU-target kernel on the device through a pure-ctypes bridge over the vendor's driver library (no SDK needed): CUDA (`nvcuda`), Intel (Level Zero), Vulkan (any 1.1 device with `shaderFloat64`/`shaderInt64`), AMD (HIP; needs a clang to assemble the code object), and Metal (macOS). The CUDA, Level Zero, and Vulkan bridges are validated on real hardware (RTX 2080 Max-Q, UHD 630); the HIP and Metal bridges are code-complete but not yet hardware-validated. Calling a GPU-target function *directly* (`f(...)`) still falls back to CPython — device execution never happens implicitly. Per-vendor caveats: CUDA transcendentals (sin/exp/log/pow) run at full f64 precision when NVIDIA's libdevice is found (CUDA toolkit or `pip install hanajit[cuda-math]`), and refuse to launch without it; Vulkan computes those at float32 precision; Metal computes all f64 at float32 (no double in Metal). Plain launches copy arrays both ways; `f.to_device(arr)` returns a resident DeviceArray that skips the copies across launches (~80× lower launch overhead measured on CUDA), and `launch(..., sync=False)` + `f.synchronize()` queues kernels without blocking. Kernels can use workgroup-shared memory (`shared_f64(N)`), `barrier()`, `atomic_add()` (all targets except Metal), and 2-D/3-D thread indexing — enough for the standard shared-memory reduction patterns, verified bit-exact on CUDA, Level Zero, and Vulkan.
 
 **Vulkan SPIR-V emission is best-effort.** LLVM's shader-flavor SPIR-V backend rejects constructs that are routine in the other targets (notably buffer indexing under logical addressing), so emission runs in an isolated subprocess: kernels it accepts yield real `GLCompute` SPIR-V; the rest fall back to annotated LLVM IR (`hlsl.shader`/`hlsl.numthreads` attributes in place) for offline lowering. The workgroup size is fixed at compile time (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`), and `block_dim()` folds to that constant.
 
@@ -511,7 +576,7 @@ See [`docs/limitations.md`](docs/limitations.md) for the full list.
 python -m hanajit.doctor
 ```
 
-The diagnostic checks compilation, dispatch, threading, caching, and the GPU code-generation backends. If `ptxas` or `llvm-mc` are on the PATH, it runs the vendor assemblers to validate the generated GPU code. It writes `hanajit_report_<platform>.md`. Example reports for Linux, Windows, and macOS are in [`reports/`](reports/).
+The diagnostic checks compilation, dispatch, threading, caching, and the GPU code-generation backends, and its **launch** section runs a real kernel on every available GPU runtime bridge and reports the device it used (or the precise reason a vendor cannot launch on this machine). If `ptxas` or `llvm-mc` are on the PATH, it also runs the vendor assemblers to validate the generated GPU code. It writes `hanajit_report_<platform>.md`. Example reports for Linux, Windows, and macOS are in [`reports/`](reports/).
 
 ---
 

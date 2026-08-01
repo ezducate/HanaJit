@@ -22,6 +22,9 @@ Decorator returning a JIT-dispatching callable.
 | `f.specialize(*types)` | Raw native entry point for those Python types (e.g. `f.specialize(int, int)`), bypassing dispatch entirely. No type checking beyond CPython unboxing — use where types are stable. |
 | `f.inspect_llvm(sig=None)` | LLVM IR text of a compiled specialization. Unavailable for disk-cache hits (codegen was skipped). |
 | `f.inspect_asm(sig=None)` | Host-native assembly. |
+| `f.launch(*args, grid=None, block=None, sync=True)` | Execute a GPU-target kernel on the device (cuda/intel/vulkan/amd/metal). Arrays copy to the device and back; `block` defaults to 256, `grid` to `ceil(len(first_array)/block)`. `sync=False` queues and returns (DeviceArray args only). See gpu.md. |
+| `f.to_device(arr)` | Upload an array once; the returned DeviceArray passes to `launch()` with no per-launch copies. `.to_host()`, `.copy_from_host(arr)`, `.free()`. |
+| `f.synchronize()` | Wait for this target's queued `sync=False` launches. |
 | `f.inspect_gpu()` | `(vendor, device_code, native)` after a GPU-target compile. `native=True` means real PTX/GCN/SPIR-V; `False` means annotated IR or MSL source. |
 | `f.inspect_wasm(sig=None, bits=32)` | `(text, native)` — WebAssembly assembly for a specialization (`native=False` → retargeted IR). |
 | `f.export_wasm(prefix, sig=None, bits=32)` | Writes `<prefix>.ll` (wasm-retargeted IR), `.s` (wasm assembly), `.mjs` (JS loader), `.build.sh` (clang command), and `.wasm` when clang is on PATH. Returns a `WasmExport` namedtuple of paths. |
@@ -124,6 +127,11 @@ copies. Not available for disk-cache-hit specializations (no IR retained).
 - `HANAJIT_VULKAN_LOCAL_SIZE` — Vulkan workgroup size `"x,y,z"`
   (default `64,1,1`); `block_dim()` folds to its x component.
 - `HANAJIT_WASM_CLANG` — clang executable used to link `.wasm` exports.
+- `HANAJIT_HIP_CLANG` — clang used to assemble GCN for HIP launches.
+- `HANAJIT_LIBDEVICE` — path to libdevice.10.bc for CUDA transcendental
+  math (auto-discovered from CUDA toolkits and pip nvidia wheels).
+- `HANAJIT_CUDA_DEVICE` / `HANAJIT_INTEL_DEVICE` / `HANAJIT_VULKAN_DEVICE`
+  / `HANAJIT_AMD_DEVICE` — device ordinal on multi-GPU machines.
 
 ## Compilable subset (v0.x)
 
@@ -131,6 +139,8 @@ Scalars `int`/`float`/`bool` (as i64/f64/i1); `f64*`/`i64*` pointers via
 `signature=` with `x[i]` loads/stores; operators `+ - * / // % ** << >> & |
 ^`, comparisons, `and/or/not` (non-short-circuit), ternary; `if/elif/else`,
 `while`, `for i in range(...)`, `break`/`continue`; self-recursion;
-`abs`/`int`/`float`; GPU intrinsics `thread_id()`/`block_id()`/`block_dim()`.
+`abs`/`int`/`float`; GPU intrinsics `thread_id()`/`block_id()`/`block_dim()`
+(plus `_y`/`_z` variants), `shared_f64(N)`/`shared_i64(N)`, `barrier()`,
+`atomic_add(buf, i, v)` (all GPU targets except metal).
 Integer `//` and `%` follow Python floor semantics including negative
 operands. Everything else falls back — see limitations.md.

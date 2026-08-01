@@ -51,7 +51,19 @@ def arr_nd(t):
 
 def arr_contig(t):
     return t[-2] == "c"
-GPU_INTRINSICS = ("thread_id", "block_id", "block_dim")
+GPU_INTRINSICS = tuple(f"{base}{ax}" for base in
+                       ("thread_id", "block_id", "block_dim")
+                       for ax in ("", "_y", "_z"))
+
+
+def gpu_intrinsic_axis(fname):
+    """('thread_id', 0|1|2) for thread_id / thread_id_y / thread_id_z."""
+    if fname.endswith(("_y", "_z")):
+        return fname[:-2], {"y": 1, "z": 2}[fname[-1]]
+    return fname, 0
+# workgroup-shared arrays / synchronization / atomics inside GPU kernels
+SHARED_INTRINSICS = {"shared_f64": PF64, "shared_i64": PI64}
+SYNC_INTRINSICS = ("barrier", "atomic_add")
 MATH_FNS = ("sqrt", "exp", "log", "sin", "cos", "floor", "ceil", "pow",
             "fabs")
 MATH_MODULES = ("math", "np", "numpy")
@@ -188,7 +200,11 @@ class TypeInferencer(ast.NodeVisitor):
             raise UnsupportedError("for/else not supported")
 
     def visit_Expr(self, node):
-        pass  # e.g. docstrings
+        # docstrings pass through; bare calls are type-checked so that
+        # side-effect intrinsics (barrier, atomic_add) are validated and
+        # unsupported calls fall back instead of being silently dropped
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            self.expr(node.value)
 
     def visit_Pass(self, node):
         pass
@@ -376,6 +392,33 @@ class TypeInferencer(ast.NodeVisitor):
                 fname = node.func.id
                 if fname in GPU_INTRINSICS:
                     return I64
+                if fname in SHARED_INTRINSICS:
+                    if len(node.args) != 1 or not (
+                            isinstance(node.args[0], ast.Constant)
+                            and isinstance(node.args[0].value, int)):
+                        raise UnsupportedError(
+                            f"{fname}(n) needs a literal int size "
+                            "(workgroup memory is allocated at compile "
+                            "time)")
+                    return SHARED_INTRINSICS[fname]
+                if fname == "barrier":
+                    if node.args:
+                        raise UnsupportedError("barrier() takes no args")
+                    return I64  # statement-position only; value unused
+                if fname == "atomic_add":
+                    if len(node.args) != 3:
+                        raise UnsupportedError(
+                            "atomic_add(buf, index, value)")
+                    bty = self.expr(node.args[0])
+                    if bty not in POINTER_ELEM:
+                        raise UnsupportedError(
+                            "atomic_add: first argument must be a "
+                            "pointer (f64*/i64* or shared_*)")
+                    if self.expr(node.args[1]) != I64:
+                        raise UnsupportedError(
+                            "atomic_add: index must be an integer")
+                    self.expr(node.args[2])
+                    return POINTER_ELEM[bty]  # returns the old value
                 if fname == "len":
                     if self.expr(node.args[0]) not in ARRAY_ELEM:
                         raise UnsupportedError(

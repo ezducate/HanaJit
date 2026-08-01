@@ -122,6 +122,49 @@ _ARCH_ENV = {"cuda": "HANAJIT_CUDA_ARCH", "amd": "HANAJIT_AMD_ARCH",
              "intel": "HANAJIT_INTEL_ARCH", "vulkan": "HANAJIT_VULKAN_ARCH"}
 
 
+# NVPTX cannot lower these LLVM intrinsics itself — they need NVIDIA's
+# libdevice bitcode. When libdevice is found, calls are rewritten to the
+# __nv_* equivalents and the bitcode is linked in during emission.
+_NV_LIBM = {"llvm.sin.f64": "__nv_sin", "llvm.cos.f64": "__nv_cos",
+            "llvm.exp.f64": "__nv_exp", "llvm.log.f64": "__nv_log",
+            "llvm.pow.f64": "__nv_pow",
+            "llvm.powi.f64.i32": "__nv_powi"}
+
+
+def find_libdevice():
+    """Locate libdevice.10.bc: env var > CUDA toolkit > pip nvidia wheel.
+
+    Returns a path or None. Install without a CUDA toolkit via
+    `pip install nvidia-cuda-nvcc-cu12` (ships nvvm/libdevice)."""
+    import glob
+    p = _os.environ.get("HANAJIT_LIBDEVICE")
+    if p and _os.path.isfile(p):
+        return p
+    candidates = []
+    for root in (_os.environ.get("CUDA_PATH"),
+                 _os.environ.get("CUDA_HOME")):
+        if root:
+            candidates.append(_os.path.join(
+                root, "nvvm", "libdevice", "libdevice.10.bc"))
+    candidates += glob.glob(
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*"
+        r"\nvvm\libdevice\libdevice.10.bc")
+    candidates += glob.glob("/usr/local/cuda*/nvvm/libdevice/"
+                            "libdevice.10.bc")
+    try:  # pip wheels: nvidia-cuda-nvcc-cu12 / -cu13
+        import site
+        for sp in site.getsitepackages() + [site.getusersitepackages()]:
+            candidates += glob.glob(_os.path.join(
+                sp, "nvidia", "cuda_nvcc", "nvvm", "libdevice",
+                "libdevice.10.bc"))
+    except Exception:
+        pass
+    for c in candidates:
+        if c and _os.path.isfile(c):
+            return c
+    return None
+
+
 def resolve_arch(vendor, cpu=None):
     """Explicit arg > env var > portable table default."""
     if cpu:
@@ -140,29 +183,31 @@ def emit(module, kernel_name, vendor, cpu=None):
     default (CUDA sm_75 / AMD gfx90a). PTX and GCN are forward-compatible:
     the driver re-JITs device code for a newer GPU at load time, so the
     conservative default runs on the widest range of installed hardware."""
-    _init()
     cfg = TARGETS[vendor]
     arch = resolve_arch(vendor, cpu)
     ir_text = retarget(module, kernel_name, vendor)
-    if vendor == "vulkan":
-        # llvmlite's SPIR-V shader backend hard-aborts the process
-        # (assertion/report_fatal_error, not a Python exception) on IR it
-        # cannot select — e.g. any non-zero-index GEP under logical
-        # addressing. Emit in a throwaway subprocess so a crash there
-        # degrades to the annotated-IR fallback instead of killing us.
-        from . import isolated
-        text = isolated.emit_assembly(ir_text, cfg["triple"], arch)
-        if text is not None:
-            return text, True
-        return ir_text, False
-    try:
-        target = llvm.Target.from_triple(cfg["triple"])
-        tm = target.create_target_machine(cpu=arch)
-        mod = llvm.parse_assembly(ir_text)
-        # mem2reg & friends: AMDGPU cannot select generic-addrspace allocas,
-        # and optimized IR yields cleaner PTX/GCN anyway
-        from .cpu import _optimize
-        _optimize(mod, tm, 3)
-        return tm.emit_assembly(mod), True
-    except Exception:
-        return ir_text, False  # annotated IR for offline llc/toolchain
+    # All device emission runs in a throwaway subprocess: llvmlite's
+    # backends do not fail gracefully on unsupported IR — the SPIR-V
+    # shader backend hard-aborts on non-zero-index GEPs, and NVPTX
+    # hard-crashes on libdevice-only intrinsics (llvm.sin.f64 etc.). A
+    # crash there degrades to the annotated-IR fallback instead of
+    # killing the interpreter. mem2reg runs in the subprocess (AMDGPU
+    # cannot select generic-addrspace allocas).
+    from . import isolated
+    if vendor == "cuda" and any(f'@"{k}"' in ir_text for k in _NV_LIBM):
+        lib = find_libdevice()
+        if lib:
+            nv_text = ir_text
+            for k, v in _NV_LIBM.items():
+                nv_text = nv_text.replace(f'@"{k}"', f"@{v}")
+            text = isolated.emit_assembly(nv_text, cfg["triple"], arch,
+                                          link_bitcode=lib,
+                                          kernel=kernel_name)
+            if text is not None:
+                return text, True
+        # no libdevice (or link failed): plain emission below crashes on
+        # these intrinsics in the subprocess and falls back to IR
+    text = isolated.emit_assembly(ir_text, cfg["triple"], arch)
+    if text is not None:
+        return text, True
+    return ir_text, False  # annotated IR for offline llc/toolchain

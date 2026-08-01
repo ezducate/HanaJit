@@ -101,7 +101,7 @@
     <div class="num"><b>3.7x</b><span>vs numba on a fused NumPy expression</span></div>
     <div class="num"><b>2.7x</b><span>float32 reduction over the float64 baseline</span></div>
     <div class="num"><b>~46 ns</b><span>per call — 3.6x less overhead than numba</span></div>
-    <div class="num"><b>217</b><span>tests green, Python 3.10–3.14, 3 OSes</span></div>
+    <div class="num"><b>264</b><span>tests green, Python 3.10–3.14, 3 OSes</span></div>
   </div>
   <p class="quiet">Every number here is measured and regenerates from
   <code>benchmarks/</code> — results are cross-verified against NumPy and numba
@@ -148,9 +148,12 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   <p><strong>Evolutionary post-optimization.</strong> A genetic algorithm searches
   semantics-preserving compilation strategies per kernel: up to 2.7x beyond -O3 on
   reductions and stencils, validated for equivalence, persisted to the disk cache.</p>
-  <p><strong>Every target.</strong> CPU (Linux/Windows/Apple Silicon), CUDA PTX, AMD GCN,
-  Intel SPIR-V, Apple Metal source, FPGA HLS export — with <code>target="auto"</code>
-  picking per kernel on the current machine.</p>
+  <p><strong>Every target.</strong> CPU (Linux/Windows/Apple Silicon) — and GPU kernels
+  that <em>execute</em> via <code>f.launch()</code> through pure-ctypes driver bridges:
+  CUDA, Intel Level Zero, and Vulkan validated on real hardware, AMD HIP and Apple
+  Metal code-complete. Shared memory, barriers, atomics, async launches, resident
+  device buffers. Plus WebAssembly export and an FPGA HLS project kit, with
+  <code>target="auto"</code> picking per kernel on the current machine.</p>
 </section>
 
 <section class="wrap">
@@ -179,8 +182,9 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
 <section class="wrap" id="how">
   <h2>How it works — nothing hidden</h2>
   <p>One IR, many machines: CPython&rsquo;s own parser, fixpoint type
-  inference, one LLVM IR module — then retargeted to your exact CPU, four
-  GPU code formats, or FPGA HLS export. Anything unprovable falls back to
+  inference, one LLVM IR module — then retargeted to your exact CPU, five
+  GPU targets (with on-device execution), WebAssembly, or an FPGA HLS export.
+  Anything unprovable falls back to
   the interpreter with one warning. ~3,000 readable lines; every detail
   below lives in the source.</p>
 

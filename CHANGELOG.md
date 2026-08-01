@@ -1,5 +1,108 @@
 # Changelog
 
+## 0.23.0
+
+**GPU kernels now execute.** `f.launch(*args, grid=, block=)` runs a
+GPU-target kernel on the device: numpy arrays are copied over, the kernel
+dispatches, and arrays are copied back. Five runtime bridges, all pure
+ctypes over the vendor's driver library — no SDKs, no build steps:
+
+- **CUDA** (`nvcuda`): driver API, PTX loaded via `cuModuleLoadDataEx`
+  (the driver JIT keeps the portable `sm_75` default running on newer
+  GPUs). *Validated on an RTX 2080 Max-Q.* Transcendental math
+  (sin/exp/log/pow) needs libdevice and is not yet linked — such kernels
+  refuse to launch; sqrt/floor/ceil/fabs lower natively.
+- **Intel** (`ze_loader`, Level Zero): kernels are compiled to OpenCL-
+  flavor SPIR-V by a new from-scratch SPIR-V binary generator
+  (`backends/spirv.py`) working directly from the typed AST — LLVM's
+  SPIR-V backend has no binary writer. Thread intrinsics map to the
+  workitem builtin variables. *Validated on UHD Graphics 630.*
+- **Vulkan** (`vulkan-1`): same SPIR-V generator, shader flavor —
+  storage buffers per pointer argument, scalars in one push-constant
+  block, workgroup size baked per (kernel, block). Vendor-neutral: any
+  Vulkan 1.1 device with shaderFloat64+shaderInt64. Works around an
+  NVIDIA driver bug (64-bit OpSRem evaluates unsigned) by deriving
+  remainders from OpSDiv; trig/exp/pow compute at f32 (GLSL.std.450
+  defines them for 16/32-bit floats only). *Validated on an RTX 2080.*
+- **AMD** (`amdhip64`, HIP): assembles the emitted GCN text into an HSA
+  code object with clang (any standard build), then
+  `hipModuleLaunchKernel`. Code-complete; awaiting validation on AMD
+  hardware.
+- **Metal** (macOS): compiles the transpiled MSL at runtime via
+  `newLibraryWithSource:` and dispatches through `objc_msgSend`. f64
+  arrays round-trip through float32 (Metal has no double). Written to
+  the documented ABI; awaiting validation on Apple hardware.
+
+**Kernel-side intrinsics** — enough to write real GPU algorithms:
+
+- `s = shared_f64(N)` / `shared_i64(N)` — workgroup-shared arrays
+  (addrspace(3) on cuda/amd, Workgroup storage in generated SPIR-V,
+  `threadgroup` in MSL). Size is a compile-time literal.
+- `barrier()` — workgroup synchronization (`nvvm.barrier0`,
+  `amdgcn.s.barrier`, `OpControlBarrier`, `threadgroup_barrier`).
+- `atomic_add(buf, i, v)` — atomic add on f64/i64 buffers, on every
+  target: LLVM `atomicrmw` (cuda/amd), `OpAtomicIAdd` + a
+  compare-exchange loop over the bit pattern (intel), and
+  `OpAtomicIAdd` / `OpAtomicFAddEXT` with the Vulkan 1.2 int64-atomics
+  and `VK_EXT_shader_atomic_float` device features detected and enabled
+  automatically (a device lacking them gets an error naming the exact
+  missing feature). Returns the old value.
+- 2-D/3-D kernels: `thread_id_y()`, `block_id_y()`, `block_dim_y()` and
+  the `_z` variants, on every target; `grid`/`block` already took up to
+  three dimensions.
+- The classic two-stage shared-memory dot-product reduction is
+  bit-exact against numpy on CUDA, Level Zero, and Vulkan; an atomic
+  histogram matches `np.bincount` on CUDA.
+- Bare-call statements are now type-checked (previously silently
+  dropped): unsupported calls fall back to CPython honestly, and
+  `barrier()`/`atomic_add()` in statement position actually emit.
+
+**Async launches** — `f.launch(..., sync=False)` queues the kernel and
+returns immediately (CUDA: 20 kernels queued in <1 ms); `f.synchronize()`
+or `DeviceArray.to_host()` waits. Requires DeviceArray pointer arguments
+(transient numpy arrays need synchronous copy-back and are refused).
+Implemented per vendor: CUDA stream, Level Zero async immediate list,
+Vulkan deferred-release submissions, HIP, Metal retained command
+buffers.
+
+Also in this release:
+
+- **Resident device buffers.** `d = f.to_device(arr)` uploads once;
+  `launch()` accepts the DeviceArray in place of the numpy array and
+  skips the per-launch copies (measured on saxpy/2M: 16.8 -> 0.20 ms
+  CUDA, 21.7 -> 3.0 ms Level Zero, 117 -> 7.0 ms Vulkan). Read back with
+  `d.to_host()`; refresh with `d.copy_from_host(arr)`; freed on `free()`
+  or garbage collection.
+- **CUDA transcendental math via libdevice.** When NVIDIA's
+  libdevice.10.bc is present (CUDA toolkit, `CUDA_PATH`,
+  `HANAJIT_LIBDEVICE`, or `pip install hanajit[cuda-math]`),
+  llvm.sin/cos/exp/log/pow intrinsics are rewritten to `__nv_*`, the
+  bitcode is linked and internalized, and kernels run at full f64
+  precision (validated: max err 1.5e-11 over a mixed expression on the
+  RTX 2080). Without libdevice such kernels still refuse to launch with
+  a clear error.
+- Device-code emission for ALL GPU vendors now runs in an isolated
+  subprocess: llvmlite's backends hard-crash the host process on
+  unsupported IR (NVPTX with libdevice-only intrinsics, SPIR-V shader
+  GEPs, flaky wasm32 emissions) — a crash now degrades to the
+  annotated-IR fallback instead of killing the interpreter.
+- `launch()` derives `grid` from the first array argument when omitted
+  (`ceil(len/block)`); `block` defaults to 256 threads.
+- Runtime availability is introspectable:
+  `hanajit.backends.rt.get_runtime(vendor)` /
+  `why_unavailable(vendor)`.
+- Multi-GPU machines can pick the device per vendor:
+  `HANAJIT_CUDA_DEVICE` / `HANAJIT_INTEL_DEVICE` /
+  `HANAJIT_VULKAN_DEVICE` / `HANAJIT_AMD_DEVICE` (ordinal; Vulkan
+  defaults to the discrete GPU when unset).
+- `python -m hanajit.doctor` gained a **launch** section: it runs saxpy
+  on every available runtime bridge and reports the device name, or the
+  precise reason a vendor cannot launch here.
+
+270 tests passing across Python 3.10-3.14 on Linux / Windows 11 / macOS
+Apple Silicon; GPU execution hardware-validated on NVIDIA RTX 2080
+Max-Q (CUDA + Vulkan) and Intel UHD Graphics 630 (Level Zero).
+
 ## 0.22.0
 
 Adds a **WebAssembly export backend**, a **Vulkan GPU target**, and a

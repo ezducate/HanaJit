@@ -44,5 +44,9 @@ function whose source `inspect` can't retrieve (REPL).
 
 Linux x86_64 is the fully verified platform. macOS (Apple Silicon) and
 Windows are in the CI matrix; arm64 codegen is additionally cross-verified
-from Linux. GPU backends are emission-verified only — no hardware execution
-has been performed. Alpha software: pin your version.
+from Linux. GPU execution (`f.launch()`) is hardware-verified for CUDA
+(RTX 2080 Max-Q), Intel Level Zero (UHD 630), and Vulkan (RTX 2080);
+the AMD HIP and Apple Metal bridges are code-complete but not yet
+hardware-verified — treat their first run as an integration test. GPU
+execution is explicit: calling a GPU-target function directly still
+falls back to CPython. Alpha software: pin your version.

@@ -531,7 +531,8 @@ class Dispatcher:
                                                    self.modules)
         for name in ("specialize", "inspect_llvm", "inspect_asm",
                      "inspect_gpu", "inspect_wasm", "export_fpga",
-                     "export_wasm", "scipy_callable",
+                     "export_wasm", "launch", "to_device", "synchronize",
+                     "scipy_callable",
                      "evolve", "evolve_hyper", "narrow"):
             setattr(proxy, name, getattr(self, name))
         proxy.__wrapped__ = self.pyfunc
@@ -632,6 +633,166 @@ class Dispatcher:
         return wasm_backend.export_wasm(
             module, self.pyfunc.__name__, path_prefix, bits=bits,
             sig=sig, ret=ret_type)
+
+    # ---- GPU execution ----
+    def launch(self, *args, grid=None, block=None, sync=True):
+        """Execute this kernel on the GPU.
+
+        With sync=False the kernel is queued and launch() returns
+        immediately; call f.synchronize() (or DeviceArray.to_host, which
+        synchronizes first) before reading results. Async launches
+        require every pointer argument to be a DeviceArray — transient
+        numpy arrays need their copy-back, which is inherently
+        synchronous.
+
+        Requires a GPU target and signature=. Array arguments (1-D
+        contiguous f64/i64 numpy arrays for 'f64*'/'i64*' parameters) are
+        copied to the device, the kernel runs over grid x block threads,
+        and arrays are copied back — so in-place writes are visible on
+        the host afterwards, like the CPU path.
+
+        block defaults to 256 threads; grid defaults to
+        ceil(len(first_array) / block_x). Both accept an int or a tuple
+        of up to three dimensions.
+
+            saxpy.launch(y, x, 2.0, n)                    # auto grid
+            saxpy.launch(y, x, 2.0, n, grid=80, block=128)
+        """
+        from .backends import rt as _rt
+        if self.target not in ("cuda", "amd", "intel", "vulkan", "metal"):
+            raise UnsupportedError(
+                f"launch() needs a GPU target, not {self.target!r}")
+        runtime = _rt.get_runtime(self.target)
+        if runtime is None:
+            raise UnsupportedError(
+                f"{self.target} kernels cannot execute on this machine: "
+                f"{_rt.why_unavailable(self.target)}")
+        if self.signature is None:
+            raise UnsupportedError("launch() requires signature= on @jit")
+        sig = self.signature
+        if len(args) != len(sig):
+            raise UnsupportedError("arity mismatch with signature")
+
+        marshalled, first_len = [], None
+        for v, t in zip(args, sig):
+            if t in POINTER_ELEM:
+                want = "float64" if t == PF64 else "int64"
+                if isinstance(v, _rt.DeviceArray):
+                    if v.runtime is not runtime:
+                        raise UnsupportedError(
+                            "launch(): DeviceArray belongs to a different "
+                            "target's runtime")
+                    if v.dtype != want:
+                        raise UnsupportedError(
+                            f"launch(): {t} argument needs a {want} "
+                            f"DeviceArray, got {v.dtype}")
+                    v._check_alive()
+                    if first_len is None:
+                        first_len = len(v)
+                    marshalled.append(("dev", v))
+                    continue
+                if not (_is_ndarray(v) and v.ndim == 1
+                        and v.flags["C_CONTIGUOUS"]
+                        and str(v.dtype) == want):
+                    raise UnsupportedError(
+                        f"launch(): {t} argument must be a 1-D contiguous "
+                        f"{want} numpy array (or a DeviceArray)")
+                if not sync:
+                    raise UnsupportedError(
+                        "launch(sync=False): pointer arguments must be "
+                        "DeviceArrays (use f.to_device(arr))")
+                if first_len is None:
+                    first_len = v.shape[0]
+                marshalled.append(("arr", v))
+            elif t == I64:
+                marshalled.append(("i64", int(v)))
+            elif t == F64:
+                marshalled.append(("f64", float(v)))
+            else:
+                raise UnsupportedError(
+                    f"launch(): unsupported argument type {t}")
+
+        block3 = _rt.normalize_dims(block, 256)
+        if grid is None:
+            if first_len is None:
+                raise UnsupportedError(
+                    "launch(): pass grid= explicitly (no array argument "
+                    "to derive it from)")
+            grid = -(-first_len // block3[0])
+        grid3 = _rt.normalize_dims(grid, None)
+
+        name = self.pyfunc.__name__
+        code = self._launch_code(runtime, sig, name)
+        return runtime.launch(code, name, grid3, block3, marshalled,
+                              sync=sync)
+
+    def synchronize(self):
+        """Wait for all of this kernel's queued (sync=False) launches."""
+        from .backends import rt as _rt
+        runtime = _rt.get_runtime(self.target)
+        if runtime is not None:
+            runtime.sync()
+
+    def to_device(self, arr):
+        """Upload a 1-D contiguous f64/i64 numpy array to this kernel's
+        GPU, returning a DeviceArray that launch() accepts in place of
+        the numpy array — data stays resident across launches (no
+        per-launch copies). Read back with .to_host(); release with
+        .free() (or let it be garbage-collected)."""
+        from .backends import rt as _rt
+        if self.target not in ("cuda", "amd", "intel", "vulkan", "metal"):
+            raise UnsupportedError(
+                f"to_device() needs a GPU target, not {self.target!r}")
+        runtime = _rt.get_runtime(self.target)
+        if runtime is None:
+            raise UnsupportedError(
+                f"{self.target} runtime unavailable: "
+                f"{_rt.why_unavailable(self.target)}")
+        if not (_is_ndarray(arr) and arr.ndim == 1
+                and arr.flags["C_CONTIGUOUS"]
+                and str(arr.dtype) in ("float64", "int64")):
+            raise UnsupportedError(
+                "to_device(): 1-D contiguous float64/int64 array required")
+        return _rt.to_device(runtime, arr)
+
+    _launch_cache = None
+
+    def _launch_code(self, runtime, sig, name):
+        """Vendor-appropriate device code for the launch bridge (cached
+        per signature; the bridges additionally cache loaded modules)."""
+        if self._launch_cache is None:
+            self._launch_cache = {}
+        key = (self.target, sig)
+        hit = self._launch_cache.get(key)
+        if hit is not None:
+            return hit
+        code = self._launch_code_uncached(runtime, sig, name)
+        self._launch_cache[key] = code
+        return code
+
+    def _launch_code_uncached(self, runtime, sig, name):
+        kind = getattr(runtime, "code_kind", "asm")
+        fn_ast, _ = _get_compiled_ast(self.pyfunc, rewrite=self.rewrite)
+        arg_names = [a.arg for a in fn_ast.args.args]
+        if len(arg_names) != len(sig):
+            raise UnsupportedError("arity mismatch with signature")
+        arg_types = dict(zip(arg_names, sig))
+        var_types, ret_type = TypeInferencer(fn_ast, arg_types).run()
+        if kind == "ast":
+            # intel / vulkan: the bridge generates SPIR-V from the typed
+            # AST directly (LLVM cannot binarize SPIR-V from our IR)
+            return (fn_ast, arg_types, var_types, ret_type)
+        module = CodeGen(fn_ast, arg_types, var_types, ret_type,
+                         reduce_reassoc=self.reduce_reassoc,
+                         fastmath=self.fastmath, gpu=self.target).generate()
+        from .backends import gpu as gpu_backend
+        text, native = gpu_backend.emit(
+            module, name, self.target, cpu=getattr(self, "gpu_arch", None))
+        if not native:
+            raise UnsupportedError(
+                f"{self.target}: native device-code emission failed on "
+                "this llvmlite; cannot launch (inspect_gpu() for the IR)")
+        return text
 
     def inspect_wasm(self, sig=None, bits=32):
         """WebAssembly assembly text for inspection. Returns

@@ -535,6 +535,44 @@ def c_detect():
     return "; ".join(f"{t} ({why})" for t, why in detect())
 
 
+def _launch_check(vendor):
+    """Empirical: run saxpy on the device through the runtime bridge and
+    verify the result — the strongest possible 'can this machine launch'
+    answer."""
+    try:
+        import numpy as np
+    except ImportError:
+        raise SkipCheck("numpy not installed")
+    from hanajit import jit
+    from hanajit.backends import rt
+    r = rt.get_runtime(vendor)
+    if r is None:
+        raise SkipCheck(rt.why_unavailable(vendor))
+
+    @jit(target=vendor, signature="f64*, f64*, f64, i64")
+    def _saxpy(y, x, a, n):
+        i = block_id() * block_dim() + thread_id()
+        if i < n:
+            y[i] = a * x[i] + y[i]
+        return 0
+
+    n = 4096
+    x = np.random.rand(n)
+    y0 = np.random.rand(n)
+    y = y0.copy()
+    _saxpy.launch(y, x, 2.0, n)
+    tol = 1e-4 if vendor == "metal" else 1e-9   # metal computes at f32
+    assert np.allclose(y, 2.0 * x + y0, rtol=tol, atol=tol), \
+        "kernel ran but produced wrong results"
+    return r.device_name
+
+
+for _v in ("cuda", "amd", "intel", "vulkan", "metal"):
+    @check("launch", f"{_v}: saxpy executes on device")
+    def _c_launch(_v=_v):
+        return _launch_check(_v)
+
+
 @check("cross", "arm64-apple-darwin codegen")
 def c_arm64():
     from hanajit import jit

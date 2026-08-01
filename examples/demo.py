@@ -118,6 +118,33 @@ try:
 except Exception as e:
     print(f"\nWASM export skipped: {e}")
 
+# --- GPU execution: run saxpy on whatever bridge this machine has ---
+try:
+    import numpy as _np
+    from hanajit.backends import rt as _rt
+    _vendor = next((v for v in ("cuda", "intel", "vulkan", "amd", "metal")
+                    if _rt.get_runtime(v) is not None), None)
+    if _vendor is None:
+        print("\nGPU launch skipped: no runtime bridge on this machine")
+    else:
+        @jit(target=_vendor, signature="f64*, f64*, f64, i64")
+        def gpu_saxpy(y, x, a, n):
+            i = block_id() * block_dim() + thread_id()
+            if i < n:
+                y[i] = a * x[i] + y[i]
+            return 0
+        _n = 100_000
+        _x = _np.random.rand(_n)
+        _y0 = _np.random.rand(_n)
+        _y = _y0.copy()
+        gpu_saxpy.launch(_y, _x, 2.0, _n)
+        _ok = _np.allclose(_y, 2.0 * _x + _y0, rtol=1e-4, atol=1e-4)
+        print(f"\nGPU launch ({_vendor}, "
+              f"{_rt.get_runtime(_vendor).device_name}): saxpy over "
+              f"{_n:,} elements -> {'CORRECT' if _ok else 'WRONG'}")
+except Exception as e:
+    print(f"\nGPU launch skipped: {e}")
+
 # --- multithreading: nogil kernels ---
 import threading
 @jit(nogil=True)

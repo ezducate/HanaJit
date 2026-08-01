@@ -48,8 +48,9 @@ class MSLGen:
         self.var_types = var_types
         self.out = []
         self.depth = 1
+        from ..typeinfer import gpu_intrinsic_axis
         self.used_intrinsics = sorted(
-            {n.func.id for n in ast.walk(func_ast)
+            {gpu_intrinsic_axis(n.func.id)[0] for n in ast.walk(func_ast)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
              and n.func.id in GPU_INTRINSICS})
 
@@ -66,13 +67,14 @@ class MSLGen:
                 params.append(f"constant {SCALAR[ty]}& {a.arg} "
                               f"[[buffer({i})]]")
         for name in self.used_intrinsics:
-            params.append(f"uint _{name} [[{INTRIN_ATTR[name]}]]")
+            params.append(f"uint3 _{name} [[{INTRIN_ATTR[name]}]]")
         sig = (f"kernel void {self.f.name}(\n        "
                + ",\n        ".join(params) + ")")
 
-        # declare locals (params excluded) up front
+        # declare locals (params excluded) up front; pointer-typed names
+        # are shared_*() threadgroup arrays, declared at their assignment
         for name, ty in sorted(self.var_types.items()):
-            if name in self.arg_types:
+            if name in self.arg_types or ty not in SCALAR:
                 continue
             zero = "false" if ty == BOOL else ("0.0f" if ty == F64 else "0")
             self.line(f"{SCALAR[ty]} {name} = {zero};")
@@ -91,6 +93,13 @@ class MSLGen:
 
     def s_Assign(self, node):
         t = node.targets[0]
+        v = node.value
+        if (isinstance(t, ast.Name) and isinstance(v, ast.Call)
+                and isinstance(v.func, ast.Name)
+                and v.func.id in ("shared_f64", "shared_i64")):
+            ety = "float" if v.func.id == "shared_f64" else "long"
+            self.line(f"threadgroup {ety} {t.id}[{v.args[0].value}];")
+            return
         if isinstance(t, ast.Subscript):
             self.line(f"{self.expr(t.value)}[{self.expr(t.slice)}] = "
                       f"{self.expr(node.value)};")
@@ -110,7 +119,15 @@ class MSLGen:
         self.line("return;")  # Metal kernels are void; value is dropped
 
     def s_Expr(self, node):
-        pass
+        v = node.value
+        if (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                and v.func.id == "barrier"):
+            self.line("threadgroup_barrier(mem_flags::mem_threadgroup);")
+        elif (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                and v.func.id == "atomic_add"):
+            raise UnsupportedError(
+                "metal: atomic_add not supported (MSL has no 64-bit or "
+                "double atomics)")
 
     def s_Pass(self, node):
         pass
@@ -211,7 +228,9 @@ class MSLGen:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             fn = node.func.id
             if fn in GPU_INTRINSICS:
-                return f"(long)_{fn}"
+                from ..typeinfer import gpu_intrinsic_axis
+                stem, axis = gpu_intrinsic_axis(fn)
+                return f"(long)_{stem}.{'xyz'[axis]}"
             if fn == "abs":
                 return f"abs({self.expr(node.args[0])})"
             if fn == "float":
