@@ -101,7 +101,7 @@
     <div class="num"><b>3.7x</b><span>vs numba on a fused NumPy expression</span></div>
     <div class="num"><b>2.7x</b><span>float32 reduction over the float64 baseline</span></div>
     <div class="num"><b>~46 ns</b><span>per call — 3.6x less overhead than numba</span></div>
-    <div class="num"><b>264</b><span>tests green, Python 3.10–3.14, 3 OSes</span></div>
+    <div class="num"><b>476</b><span>test cases, Python 3.10–3.14, 3 OSes</span></div>
   </div>
   <p class="quiet">Every number here is measured and regenerates from
   <code>benchmarks/</code> — results are cross-verified against NumPy and numba
@@ -150,10 +150,13 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   reductions and stencils, validated for equivalence, persisted to the disk cache.</p>
   <p><strong>Every target.</strong> CPU (Linux/Windows/Apple Silicon) — and GPU kernels
   that <em>execute</em> via <code>f.launch()</code> through pure-ctypes driver bridges:
-  CUDA, Intel Level Zero, and Vulkan validated on real hardware, AMD HIP and Apple
-  Metal code-complete. Shared memory, barriers, atomics, async launches, resident
-  device buffers. Plus WebAssembly export and an FPGA HLS project kit, with
-  <code>target="auto"</code> picking per kernel on the current machine.</p>
+  CUDA, Intel Level Zero, Vulkan, and Apple Metal validated on real hardware;
+  AMD HIP code-complete and awaiting hardware. Shared memory, barriers, atomics,
+  async launches, and resident device buffers are supported.</p>
+  <p><strong>Self-contained deployment.</strong>
+  <code>f.export_executable(..., cuda="off|optional|required")</code> builds a
+  scalar x86-64 CLI with no Python runtime; optional CUDA embeds PTX and a CPU
+  fallback. WebAssembly export and an FPGA HLS project kit are also available.</p>
 </section>
 
 <section class="wrap">
@@ -183,10 +186,9 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   <h2>How it works — nothing hidden</h2>
   <p>One IR, many machines: CPython&rsquo;s own parser, fixpoint type
   inference, one LLVM IR module — then retargeted to your exact CPU, five
-  GPU targets (with on-device execution), WebAssembly, or an FPGA HLS export.
-  Anything unprovable falls back to
-  the interpreter with one warning. ~3,000 readable lines; every detail
-  below lives in the source.</p>
+  GPU targets (with on-device execution), a self-contained executable,
+  WebAssembly, or FPGA HLS export. Anything unprovable falls back to the
+  interpreter with one warning; every detail below lives in the source.</p>
 
   <figure class="dg">
   <svg viewBox="0 0 900 470" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
@@ -380,19 +382,21 @@ report = energy.evolve(a)            <span class="cm"># GA squeezes the compiled
   <code>target="auto"</code> probes driver libraries per-kernel.</p>
   <table class="spec">
     <tr><th>target</th><th>emission</th><th>verified by</th></tr>
-    <tr><td>cpu</td><td>host-tuned object via MCJIT</td><td>217 tests × Linux/Windows/macOS</td></tr>
-    <tr><td>cuda</td><td>NVPTX → PTX (sm_75)</td><td>doctor: PTX emission ✓ (ptxas optional)</td></tr>
-    <tr><td>amd</td><td>AMDGPU → GCN gfx90a</td><td>doctor ✓ on all three platforms</td></tr>
-    <tr><td>intel</td><td>SPIR-V for Level Zero</td><td>doctor ✓ (thread intrinsics roadmap)</td></tr>
-    <tr><td>metal</td><td>AST → MSL source</td><td>real <code>xcrun metal</code> → AIR on M4 ✓</td></tr>
-    <tr><td>fpga</td><td>IR + Vitis HLS TCL</td><td>export path tested</td></tr>
+    <tr><td>cpu</td><td>host-tuned object via MCJIT</td><td>476-case suite across Linux/Windows/macOS</td></tr>
+    <tr><td>cuda</td><td>NVPTX → PTX → CUDA driver JIT</td><td>launch validated on RTX 2080 Max-Q</td></tr>
+    <tr><td>amd</td><td>AMDGPU → GCN → HSA object</td><td>code-complete, awaiting AMD hardware</td></tr>
+    <tr><td>intel</td><td>OpenCL-flavor SPIR-V → Level Zero</td><td>launch validated on UHD 630</td></tr>
+    <tr><td>vulkan</td><td>shader-flavor SPIR-V</td><td>launch validated on RTX 2080 Max-Q</td></tr>
+    <tr><td>metal</td><td>AST → MSL → Metal.framework</td><td>launch validated on Apple Silicon</td></tr>
+    <tr><td>standalone</td><td>C11 + optional embedded CUDA PTX</td><td>x86-64 Windows/Linux/Intel macOS</td></tr>
+    <tr><td>wasm / fpga</td><td>WebAssembly kit / Vitis HLS project</td><td>export paths tested</td></tr>
   </table>
   <div class="callout">
-    <p><strong>GPU scope:</strong> Hana Jit emits and assembles vendor-valid
-    GPU code (verified by real <code>ptxas</code>, <code>llvm-mc</code>, and
-    <code>xcrun metal</code>), but does not yet launch kernels on a GPU. The
-    host-side dispatch bridge is a roadmap item. The GPU backends are a
-    validated compiler target, not a runtime. FPGA is export-only.</p>
+    <p><strong>Runtime scope:</strong> GPU execution is explicit through
+    <code>f.launch()</code>; calling a GPU-target function normally still uses
+    CPython fallback. CUDA, Level Zero, Vulkan, and Metal launch on real
+    hardware; HIP still needs AMD-hardware validation. Standalone executables
+    contain neither Python nor HanaJit. WebAssembly and FPGA remain export-only.</p>
   </div>
 
   <h3>5 · Caching: compile once, then never again</h3>
