@@ -37,10 +37,12 @@ Everything PyPI displays comes from `pyproject.toml`. Confirm it contains:
 
 - `name`, `version`, `description`, `readme = "README.md"`
 - `requires-python = ">=3.10"`
-- `license` and the matching license classifier
+- SPDX `license` plus `license-files` (avoid deprecated license tables and
+  license classifiers)
 - `authors`, `keywords`, `classifiers`
 - `[project.urls]` pointing at the GitHub repo
 - `dependencies = ["llvmlite>=0.42"]`
+- `build-system.requires = ["setuptools>=77"]` for current PyPI metadata
 
 The `README.md` is rendered as the project's front page on PyPI, so make sure
 it looks right in Markdown.

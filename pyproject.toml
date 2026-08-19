@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,8 @@ version = "0.23.0"
 description = "LLVM-backed Python JIT with transparent fallback, GPU launch support, self-contained x86-64 executable export, WebAssembly, and FPGA HLS export."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
   { name = "Iqbal Addou", email = "cto@ezducate.ai" },
   { name = "Iqbal Addou", email = "iqbal.addou@gmail.com" },
@@ -29,7 +30,6 @@ classifiers = [
   "Operating System :: MacOS",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: Apache Software License",
 ]
 
 keywords = ["jit", "compiler", "llvm", "numpy", "performance", "numba",
