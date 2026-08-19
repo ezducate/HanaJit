@@ -36,7 +36,7 @@ or build step:
 | `intel` | `ze_loader` (Level Zero) | OpenCL-flavor SPIR-V from hanajit's own generator | UHD Graphics 630 |
 | `vulkan` | `vulkan-1` | shader-flavor SPIR-V from the same generator | RTX 2080 Max-Q |
 | `amd` | `amdhip64` (HIP) | GCN text assembled by clang into an HSA code object | code-complete, awaiting AMD hardware |
-| `metal` | Metal.framework (macOS) | transpiled MSL compiled at runtime | code-complete, awaiting Apple hardware |
+| `metal` | Metal.framework (macOS) | transpiled MSL compiled at runtime | Apple Silicon GitHub runner |
 
 ### Async launches
 
@@ -84,8 +84,8 @@ Execution caveats (honest list):
   arrays round-trip through a float32 copy.
 - **amd**: needs any clang on PATH (`HANAJIT_HIP_CLANG` overrides) to
   assemble the code object.
-- Every launch copies all arrays both ways; resident device buffers are
-  on the roadmap.
+- Plain NumPy-array launches copy arrays both ways. `DeviceArray` arguments
+  keep their storage resident and avoid those transfers until `.to_host()`.
 
 `hanajit.backends.rt.get_runtime(vendor)` returns the bridge or None;
 `why_unavailable(vendor)` explains a None (no driver, no device, missing
@@ -158,11 +158,11 @@ def dot_partials(partials, a, b, n):
 
 | target | Output | Notes |
 |---|---|---|
-| `cuda` | PTX (LLVM NVPTX) | All three intrinsics (`%tid.x`, `%ctaid.x`, `%ntid.x`). Assemble with `ptxas` to sanity-check on a CUDA machine. |
-| `amd` | GCN ISA / HSA code object v6 (LLVM AMDGPU, default `gfx90a`) | `thread_id`/`block_id` only — pass the workgroup size as a kernel argument (reading the dispatch packet is roadmap). IR is optimized before emission (AMDGPU rejects generic-addrspace allocas). |
-| `intel` | SPIR-V, OpenCL flavor (LLVM SPIR-V backend) | `spir_kernel` calling convention; runtime would be Level Zero / OpenCL. |
+| `cuda` | PTX (LLVM NVPTX) | 1-D/2-D/3-D thread, block, and block-size intrinsics; shared memory, barriers, and atomics. The driver JIT loads embedded PTX at launch. |
+| `amd` | GCN ISA / HSA code object v5 (LLVM AMDGPU, default `gfx90a`) | Thread/block/block-size intrinsics, shared memory, barriers, and atomics; HIP launches a clang-assembled HSA object. IR is optimized before emission. |
+| `intel` | SPIR-V, OpenCL flavor (HanaJit's binary generator) | Thread indexing, shared memory, barriers, and atomics dispatched by the Level Zero bridge; validated on UHD 630. |
 | `vulkan` | SPIR-V, shader flavor (`GLCompute`) | Entry point annotated `hlsl.shader="compute"` + `hlsl.numthreads`. `thread_id`/`block_id` map to `llvm.spv.thread.id.in.group` / `llvm.spv.group.id`; `block_dim()` folds to the compile-time workgroup size (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`). Emission runs in an isolated subprocess (LLVM's shader backend hard-aborts on IR it cannot select, e.g. buffer indexing under logical addressing); kernels it rejects fall back to annotated IR with `native=False`. Not interchangeable with the `intel` target's OpenCL-flavor SPIR-V. |
-| `metal` | Metal Shading Language **source** | LLVM has no Metal target, so this is an exact source transpiler over the compile subset. **f64 lowers to float32** (Metal has no double); GPU integer `/` and `%` keep C semantics. Same three intrinsics, mapped to threadgroup attributes. Validate on a Mac: `python examples/metal_check.py` (compiles with real `xcrun metal` to `.metallib`). |
+| `metal` | Metal Shading Language **source** | LLVM has no Metal target, so this is an exact source transpiler over the compile subset. **f64 lowers to float32** (Metal has no double); GPU integer `/` and `%` keep C semantics. Thread indexing, shared memory, and barriers are supported; atomics are not. Runtime compilation, launch, and copy-back are validated on Apple Silicon. |
 
 ## `target="auto"`
 
@@ -246,9 +246,8 @@ The `doctor` assembles our GCN with `llvm-mc` when it is on PATH (it ships
 with LLVM/clang and ROCm), producing a real object file — the AMD analogue
 of the `ptxas` check for NVIDIA.
 
-**Intel note:** SPIR-V *emission* is verified, but Intel thread-index
-intrinsics (`thread_id` etc.) are not yet mapped to SPIR-V builtins, so
-data-parallel Intel kernels currently fall back. This is the least
-complete of the GPU targets and is on the roadmap. (The `vulkan` target
-*does* map the thread intrinsics — via `llvm.spv.*` — but its emitter
-accepts a narrower IR subset; see the table above.)
+**Intel note:** HanaJit's OpenCL-flavor SPIR-V generator maps thread indices
+to work-item builtins directly, and the Level Zero bridge has been validated
+with data-parallel kernels on UHD 630. The `vulkan` target uses shader-flavor
+SPIR-V and a different runtime contract; the two formats are not
+interchangeable.
