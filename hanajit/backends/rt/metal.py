@@ -49,6 +49,13 @@ class Runtime:
         self._objc.sel_registerName.restype = ctypes.c_void_p
         self._objc.sel_registerName.argtypes = [ctypes.c_char_p]
         self._objc.objc_msgSend.restype = ctypes.c_void_p
+        # ctypes assumes C functions return a 32-bit int unless told
+        # otherwise.  Autorelease pool tokens are pointers, so leaving this
+        # implicit truncates them on 64-bit macOS and crashes in PoolPop.
+        self._objc.objc_autoreleasePoolPush.restype = ctypes.c_void_p
+        self._objc.objc_autoreleasePoolPush.argtypes = []
+        self._objc.objc_autoreleasePoolPop.restype = None
+        self._objc.objc_autoreleasePoolPop.argtypes = [ctypes.c_void_p]
         self._metal.MTLCreateSystemDefaultDevice.restype = ctypes.c_void_p
         self._cf.CFStringCreateWithCString.restype = ctypes.c_void_p
         self._cf.CFStringCreateWithCString.argtypes = [

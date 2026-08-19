@@ -1,3 +1,4 @@
+import ctypes
 import importlib
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import pytest
 
 from hanajit import UnsupportedError
 from hanajit.backends import detect, gpu, isolated, rt, wasm
+from hanajit.backends.rt import metal as metal_runtime
 from hanajit.typeinfer import I64
 
 
@@ -44,6 +46,53 @@ class FakeRuntime:
         if self.fail_free:
             raise RuntimeError("driver already gone")
         self.storage.pop(impl, None)
+
+
+class FakeCFunction:
+    def __init__(self, result=1):
+        self.result = result
+        self.restype = "unset"
+        self.argtypes = "unset"
+
+    def __call__(self, *args):
+        return self.result
+
+
+def test_metal_autorelease_pool_uses_pointer_sized_ctypes_signatures(
+        monkeypatch):
+    objc = SimpleNamespace(
+        sel_registerName=FakeCFunction(),
+        objc_msgSend=FakeCFunction(),
+        objc_autoreleasePoolPush=FakeCFunction(),
+        objc_autoreleasePoolPop=FakeCFunction(),
+    )
+    metal = SimpleNamespace(MTLCreateSystemDefaultDevice=FakeCFunction())
+    core_foundation = SimpleNamespace(
+        CFStringCreateWithCString=FakeCFunction())
+
+    def load_library(path):
+        if path.endswith("libobjc.A.dylib"):
+            return objc
+        if path.endswith("/Metal"):
+            return metal
+        return core_foundation
+
+    def message(_self, _receiver, selector, _restype, _argtypes, *args):
+        if selector == b"UTF8String":
+            return b"Test Apple GPU"
+        return 1
+
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr(metal_runtime.ctypes, "CDLL", load_library)
+    monkeypatch.setattr(metal_runtime.Runtime, "_msg", message)
+
+    runtime = metal_runtime.Runtime()
+
+    assert runtime.device_name == "Test Apple GPU"
+    assert objc.objc_autoreleasePoolPush.restype is ctypes.c_void_p
+    assert objc.objc_autoreleasePoolPush.argtypes == []
+    assert objc.objc_autoreleasePoolPop.restype is None
+    assert objc.objc_autoreleasePoolPop.argtypes == [ctypes.c_void_p]
 
 
 @pytest.mark.parametrize(

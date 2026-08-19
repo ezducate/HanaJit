@@ -7,6 +7,13 @@ import pytest
 import numpy as np
 
 from hanajit import jit, UnsupportedError
+from hanajit.backends import executable
+
+
+pytestmark = pytest.mark.skipif(
+    not executable._x86_64(),
+    reason="standalone executable integration tests require x86-64",
+)
 
 
 def _run_if_linked(out, *args):
@@ -225,8 +232,6 @@ def test_bad_cuda_mode(tmp_path):
 
 
 def test_x86_only_guard(tmp_path, monkeypatch):
-    from hanajit.backends import executable
-
     @jit(signature="i64")
     def ident(x):
         return x
@@ -476,7 +481,7 @@ def test_output_path_with_spaces_and_build_script_rebuild(tmp_path):
     assert _run_if_linked(out, 8) == "16"
 
 
-def test_cpu_executable_runs_with_empty_environment(tmp_path):
+def test_cpu_executable_runs_without_python_environment(tmp_path):
     @jit(signature="i64")
     def increment(x):
         return x + 1
@@ -484,8 +489,14 @@ def test_cpu_executable_runs_with_empty_environment(tmp_path):
     out = increment.export_executable(tmp_path / "empty_env")
     if out.executable is None:
         return
+    env = {}
+    if os.name == "nt":
+        # CPython 3.10 cannot pass a completely empty environment block to
+        # CreateProcess.  SystemRoot is enough for Windows while still
+        # proving that the executable needs no Python/HanaJit environment.
+        env["SystemRoot"] = os.environ["SystemRoot"]
     r = subprocess.run([out.executable, "41"], capture_output=True,
-                       text=True, timeout=20, env={})
+                       text=True, timeout=20, env=env)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "42"
 
