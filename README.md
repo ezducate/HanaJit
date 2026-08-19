@@ -70,7 +70,14 @@ Hana Jit was developed in the R&D pipeline at [EZducate](https://ezducate.ai) to
 
 ## Status
 
-Hana Jit is alpha software. The CPU compiler is stable and tested: **270 tests pass across Python 3.10–3.14 on Linux, Windows 11, and macOS (Apple Silicon).** GPU kernels execute on-device via `f.launch()` through ctypes driver bridges — CUDA, Level Zero, and Vulkan validated on real hardware; HIP and Metal code-complete (see [Limitations](#limitations)). WebAssembly and FPGA are export paths for external toolchains. APIs may change before 1.0; pin a version if you depend on it.
+Hana Jit is alpha software. The CPU compiler is stable and covered by a
+**476-case test suite**. Python 3.10–3.14 is supported; GitHub Actions exercises
+Python 3.10–3.13 on Linux, Windows, and Apple Silicon macOS. GPU kernels execute
+on-device via `f.launch()` through ctypes driver bridges — CUDA, Level Zero,
+Vulkan, and Metal are validated on real hardware; HIP is code-complete and
+awaiting AMD hardware (see [Limitations](#limitations)). Standalone x86-64,
+WebAssembly, and FPGA are explicit export paths. APIs may change before 1.0;
+pin a version if you depend on it.
 
 ---
 
@@ -103,7 +110,10 @@ python -m pytest tests/ -q    # run the suite
 python -m hanajit.doctor      # environment and capability diagnostic
 ```
 
-Optional extras: `hanajit[bench]` adds `numba` and `scipy` for the comparison benchmarks; `hanajit[test]` adds the test dependencies.
+Optional extras: `hanajit[test]` adds pytest and NumPy; `hanajit[bench]` adds
+Numba and SciPy for comparison benchmarks; `hanajit[scipy]` adds SciPy; and
+`hanajit[cuda-math]` supplies NVIDIA libdevice for full-precision CUDA
+transcendental functions without installing a CUDA toolkit.
 
 ---
 
@@ -466,7 +476,7 @@ def dot_partials(partials, a, b, n):
 | `intel` | `ze_loader` (Level Zero; hanajit's own SPIR-V generator) | UHD Graphics 630 — bit-exact |
 | `vulkan` | `vulkan-1` (vendor-neutral; any 1.1 device with f64/i64 shaders) | RTX 2080 Max-Q — bit-exact |
 | `amd` | `amdhip64` (HIP; GCN assembled by clang) | code-complete, awaiting AMD hardware |
-| `metal` | Metal.framework (macOS; runtime-compiled MSL) | code-complete, awaiting Apple hardware |
+| `metal` | Metal.framework (macOS; runtime-compiled MSL) | Apple Silicon GitHub runner — SAXPY launch and copy-back validated |
 
 CUDA transcendentals (sin/exp/log/pow) link NVIDIA's libdevice automatically when found — `pip install hanajit[cuda-math]` provides it without a CUDA toolkit. Full details, caveats, and multi-GPU selection: [`docs/gpu.md`](docs/gpu.md).
 
@@ -475,29 +485,39 @@ CUDA transcendentals (sin/exp/log/pow) link NVIDIA's libdevice automatically whe
 ## Standalone x86-64 executables
 
 `export_executable` turns a scalar `@jit` function into a native command-line
-program. The output is a single application file and does not import or embed
-Python or HanaJit. Positional command-line arguments follow the declared
-`i64`/`f64`/`bool` signature; the return value is printed to stdout.
+program. The deployed output is a single application file and does not import
+or embed Python, HanaJit, or PyPI packages. Positional command-line arguments
+follow the declared `i64`/`f64`/`bool` signature; the return value is printed to
+stdout.
 
 ```python
 from hanajit import jit
 
-@jit(signature="f64, i64")
+@jit
 def compound(x, years):
     for _ in range(years):
         x *= 1.05
     return x
 
 out = compound.export_executable(
-    "compound.exe",       # use "compound" on Linux/macOS
+    "compound",           # Windows automatically produces compound.exe
+    sig="f64, i64",       # optional after a specialization already exists
     cuda="optional",      # "off", "optional", or "required"
+    cuda_arch="sm_75",    # optional PTX target override
 )
 print(out.executable)
 ```
 
 ```bash
-compound.exe 1000 10
+./compound 1000 10        # Windows: compound.exe 1000 10
 ```
+
+| option | default | behavior |
+|---|---|---|
+| `output` | required | Output path. HanaJit adds `.exe` on Windows and writes source/object/build artifacts beside it. |
+| `sig` | `None` | Scalar signature string or tuple. Omit it after calling the function once or when `@jit(signature=...)` supplied it. |
+| `cuda` | `"off"` | `"off"`, `"optional"`, or `"required"`; `True` aliases `"optional"`, while `False`/`None` alias `"off"`. |
+| `cuda_arch` | `None` | Embedded PTX target such as `"sm_75"` or `"sm_90"`. Precedence is this argument, `@jit(gpu_arch=...)`, `HANAJIT_CUDA_ARCH`, then portable default `sm_75`. |
 
 - **`cuda="off"`** creates a CPU-only executable.
 - **`cuda="optional"`** embeds a one-thread PTX version, dynamically loads
@@ -505,6 +525,8 @@ compound.exe 1000 10
 - **`cuda="required"`** embeds PTX but exits with status 70 if CUDA cannot
   run. No CUDA toolkit is needed on the destination machine; only the NVIDIA
   driver is required.
+- Invalid CLI arity or scalar text exits with status 64. A successful run exits
+  with status 0.
 - The exporter targets x86-64 Windows, Linux, and Intel macOS. CUDA modes are
   unavailable on macOS. Apple Silicon and 32-bit x86 are outside this export's
   contract.
@@ -515,6 +537,14 @@ compound.exe 1000 10
   Windows; Clang/GCC are used on Unix. `HANAJIT_CC` overrides discovery. If no
   compiler is available, HanaJit writes the self-contained C source and exact
   `.build.bat`/`.build.sh`; install a compiler and run that script.
+
+Imports do not become bundled dependencies. Supported scalar calls such as
+`math.sin(x)` or `numpy.sqrt(x)` are recognized statically and lowered to native
+C/LLVM operations; NumPy is not needed on the destination. Arbitrary package
+calls — including PyTorch, pandas, SciPy APIs outside the supported scalar
+subset, custom modules, dynamic imports, `eval`, and similar runtime features —
+raise `UnsupportedError` during export. HanaJit never silently ships a Python
+interpreter or an entire site-packages directory.
 
 The returned `ExecutableExport(executable, object, source, build, ptx)` keeps
 all build artifacts available for inspection. At runtime the executable uses
@@ -607,7 +637,7 @@ With the Vitis toolchain and a board, the next step is `vitis_hls -f dot_export_
 
 **Falls back to the interpreter** (with one warning): allocating new arrays inside a kernel, most of the object model (classes, dictionaries, arbitrary objects), generators, exceptions as control flow, string manipulation, `float16`/`complex` dtypes, and the remainder of the NumPy API. Hana Jit targets numeric kernels; code outside that scope runs in the interpreter.
 
-**GPU execution is explicit and experimental.** `f.launch(*args, grid=, block=)` executes a GPU-target kernel on the device through a pure-ctypes bridge over the vendor's driver library (no SDK needed): CUDA (`nvcuda`), Intel (Level Zero), Vulkan (any 1.1 device with `shaderFloat64`/`shaderInt64`), AMD (HIP; needs a clang to assemble the code object), and Metal (macOS). The CUDA, Level Zero, and Vulkan bridges are validated on real hardware (RTX 2080 Max-Q, UHD 630); the HIP and Metal bridges are code-complete but not yet hardware-validated. Calling a GPU-target function *directly* (`f(...)`) still falls back to CPython — device execution never happens implicitly. Per-vendor caveats: CUDA transcendentals (sin/exp/log/pow) run at full f64 precision when NVIDIA's libdevice is found (CUDA toolkit or `pip install hanajit[cuda-math]`), and refuse to launch without it; Vulkan computes those at float32 precision; Metal computes all f64 at float32 (no double in Metal). Plain launches copy arrays both ways; `f.to_device(arr)` returns a resident DeviceArray that skips the copies across launches (~80× lower launch overhead measured on CUDA), and `launch(..., sync=False)` + `f.synchronize()` queues kernels without blocking. Kernels can use workgroup-shared memory (`shared_f64(N)`), `barrier()`, `atomic_add()` (all targets except Metal), and 2-D/3-D thread indexing — enough for the standard shared-memory reduction patterns, verified bit-exact on CUDA, Level Zero, and Vulkan.
+**GPU execution is explicit and experimental.** `f.launch(*args, grid=, block=)` executes a GPU-target kernel on the device through a pure-ctypes bridge over the vendor's driver library (no SDK needed): CUDA (`nvcuda`), Intel (Level Zero), Vulkan (any 1.1 device with `shaderFloat64`/`shaderInt64`), AMD (HIP; needs a clang to assemble the code object), and Metal (macOS). CUDA, Level Zero, Vulkan, and Metal are validated on real hardware (RTX 2080 Max-Q, UHD 630, and Apple Silicon); HIP is code-complete and awaiting AMD hardware. Calling a GPU-target function *directly* (`f(...)`) still falls back to CPython — device execution never happens implicitly. Per-vendor caveats: CUDA transcendentals (sin/exp/log/pow) run at full f64 precision when NVIDIA's libdevice is found (CUDA toolkit or `pip install hanajit[cuda-math]`), and refuse to launch without it; Vulkan computes those at float32 precision; Metal computes all f64 at float32 (no double in Metal). Plain launches copy arrays both ways; `f.to_device(arr)` returns a resident DeviceArray that skips the copies across launches (~80× lower launch overhead measured on CUDA), and `launch(..., sync=False)` + `f.synchronize()` queues kernels without blocking. Kernels can use workgroup-shared memory (`shared_f64(N)`), `barrier()`, `atomic_add()` (all targets except Metal), and 2-D/3-D thread indexing — enough for the standard shared-memory reduction patterns, verified bit-exact on CUDA, Level Zero, and Vulkan.
 
 **Vulkan SPIR-V emission is best-effort.** LLVM's shader-flavor SPIR-V backend rejects constructs that are routine in the other targets (notably buffer indexing under logical addressing), so emission runs in an isolated subprocess: kernels it accepts yield real `GLCompute` SPIR-V; the rest fall back to annotated LLVM IR (`hlsl.shader`/`hlsl.numthreads` attributes in place) for offline lowering. The workgroup size is fixed at compile time (`HANAJIT_VULKAN_LOCAL_SIZE`, default `64,1,1`), and `block_dim()` folds to that constant.
 

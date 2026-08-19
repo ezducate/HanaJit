@@ -310,6 +310,7 @@ def test_no_compiler_still_writes_reproducible_artifacts(tmp_path,
     def increment(x):
         return x + 1
 
+    monkeypatch.setattr(executable, "_x86_64", lambda: True)
     monkeypatch.setattr(executable, "_compiler", lambda: None)
     with pytest.warns(UserWarning, match="no C compiler found"):
         out = increment.export_executable(tmp_path / "nested" / "increment")
@@ -331,6 +332,7 @@ def test_compiler_failure_returns_sources_not_stale_executable(
     output.write_bytes(b"stale")
     compiler = {"argv": ["failing-cc"], "msvc": False,
                 "env": None, "vcvars": None}
+    monkeypatch.setattr(executable, "_x86_64", lambda: True)
     monkeypatch.setattr(executable, "_compiler", lambda: compiler)
     monkeypatch.setattr(
         executable.subprocess, "run",
@@ -402,20 +404,22 @@ def test_export_rejects_signature_arity_mismatch(tmp_path):
         add.export_executable(tmp_path / "add", sig="i64")
 
 
-def test_export_rejects_non_cli_scalar_type(tmp_path):
+def test_export_rejects_non_cli_scalar_type(tmp_path, monkeypatch):
     @jit(native_dispatch=False)
     def identity(x):
         return x
 
+    monkeypatch.setattr(executable, "_x86_64", lambda: True)
     with pytest.raises(UnsupportedError, match="i64/f64/bool only"):
         identity.export_executable(tmp_path / "identity", sig=(F32,))
 
 
-def test_export_rejects_non_ascii_c_function_name(tmp_path):
+def test_export_rejects_non_ascii_c_function_name(tmp_path, monkeypatch):
     @jit(native_dispatch=False)
     def café(x):
         return x
 
+    monkeypatch.setattr(executable, "_x86_64", lambda: True)
     with pytest.raises(UnsupportedError, match="ASCII C identifiers"):
         café.export_executable(tmp_path / "unicode", sig="i64")
 
