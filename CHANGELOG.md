@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added `f.export_executable(output, sig=None, cuda="off")` for standalone
+- Added `f.export_executable(output, sig=None, cuda="off", cuda_arch=None)` for standalone
   x86-64 command-line programs on Windows, Linux, and Intel macOS. Scalar
   `i64`/`f64`/`bool` arguments are parsed from the command line and the result
   is printed to stdout; no Python or HanaJit runtime is present in the output.
@@ -12,6 +12,15 @@
   CUDA toolkit or sidecar PTX.
 - Standalone builds auto-detect MSVC (including non-developer Windows shells),
   Clang, or GCC and always write reproducible C source and build scripts.
+- Supported scalar `math.*`/`numpy.*` calls lower to native operations without
+  bundling those packages. Arbitrary PyPI package calls, imports inside the
+  kernel, `eval`, and other dynamic behavior fail export explicitly.
+- Fixed Metal's Objective-C autorelease-pool ABI declarations on 64-bit macOS;
+  Metal SAXPY launch/copy-back now passes on Apple Silicon GitHub runners.
+- Added architecture-aware executable tests: x86-64 integrations skip on
+  Apple Silicon while architecture-independent exporter unit tests simulate
+  their intended x86-64 precondition. Also fixed the clean-environment launch
+  test on Windows Python 3.10.
 
 ## 0.23.0
 

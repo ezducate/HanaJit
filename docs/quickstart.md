@@ -51,6 +51,32 @@ them resident across launches. See gpu.md for kernels, intrinsics
 (`thread_id()`, `shared_f64(N)`, `barrier()`, `atomic_add()`), async
 launches, and per-vendor status.
 
+## Build a self-contained executable
+
+On an x86-64 Windows, Linux, or Intel macOS build machine, a scalar kernel can
+become a command-line application with no Python/HanaJit dependency:
+
+```python
+@jit
+def compound(x, years):
+    for _ in range(years):
+        x *= 1.05
+    return x
+
+artifacts = compound.export_executable(
+    "compound",
+    sig="f64, i64",
+    cuda="optional",       # off / optional CPU fallback / required CUDA
+    cuda_arch="sm_75",
+)
+```
+
+MSVC, Clang, or GCC links the application; `HANAJIT_CC` overrides discovery.
+CUDA PTX is embedded and needs only an NVIDIA driver at runtime. Supported
+scalar `math.*`/`numpy.*` operations are compiled, not bundled; arbitrary PyPI
+package calls and dynamic features such as imports inside the kernel or `eval`
+are rejected. See [api.md](api.md#fexport_executable) for the complete contract.
+
 ## Quick wins checklist
 
 - Hot numeric loop in a request handler / script? `@jit(nogil=True)`.

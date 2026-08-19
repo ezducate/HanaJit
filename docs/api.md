@@ -38,18 +38,34 @@ Decorator returning a JIT-dispatching callable.
 standalone x86-64 CLI for a scalar signature and returns
 `ExecutableExport(executable, object, source, build, ptx)`.
 
+| Parameter | Default | Meaning |
+|---|---|---|
+| `output` | required | Destination path. `.exe` is added on Windows; generated source, object, and build script paths are derived beside it. |
+| `sig` | `None` | Scalar signature string/tuple (`i64`, `f64`, `bool`). Required only when neither `@jit(signature=...)` nor a previous specialization supplies one. |
+| `cuda` | `"off"` | `"off"` for CPU only, `"optional"` for embedded PTX with CPU fallback, or `"required"` for embedded PTX with no runtime fallback. `True` aliases `"optional"`; `False`/`None` alias `"off"`. |
+| `cuda_arch` | `None` | PTX target override such as `"sm_75"`/`"sm_90"`. Resolution order: this value, the decorator's `gpu_arch`, `HANAJIT_CUDA_ARCH`, then `sm_75`. |
+
 The executable accepts one positional argument per declared scalar type
 (`i64`, `f64`, or `bool`, with booleans written as `0`/`1`) and prints the
-scalar result. The static compiler subset is authoritative: dynamic calls such
-as `eval`, imports, objects, and unsupported syntax raise `UnsupportedError`
-instead of being bundled with an interpreter.
+scalar result. Invalid arity/text exits with status 64; `cuda="required"`
+exits with status 70 when CUDA is unavailable.
 
-The target is x86-64 Windows/Linux/Intel macOS. MSVC, Clang, or GCC is required
-only on the build machine; set `HANAJIT_CC` to override compiler discovery.
-The destination needs no Python, HanaJit, or CUDA toolkit. CUDA modes dynamically
-load `nvcuda.dll`/`libcuda.so.1`; `optional` falls back to CPU and `required`
-exits with status 70 when CUDA is unavailable. Pointer/array CLI arguments and
-CUDA recursion are not supported in this first version.
+The static compiler subset is authoritative. Supported scalar `math.*` and
+`numpy.*` calls are lowered to native operations; those modules are not copied
+into the application. Imports inside the function, `eval`, dynamic dispatch,
+objects, PyTorch/pandas/custom-package calls, and other unsupported syntax
+raise `UnsupportedError` instead of bundling an interpreter or site-packages.
+
+The target is x86-64 Windows/Linux/Intel macOS; Apple Silicon and 32-bit x86
+are rejected, and standalone CUDA modes are unavailable on macOS. MSVC, Clang,
+or GCC is required only on the build machine; set `HANAJIT_CC` to override
+compiler discovery. If none is found, `executable` and `object` are `None`, but
+the self-contained `source` and exact `build` script are still returned.
+
+The destination needs no Python, HanaJit, CUDA toolkit, or PTX sidecar. CUDA
+modes embed PTX and dynamically load `nvcuda.dll`/`libcuda.so.1`; `optional`
+falls back to the compiled CPU kernel. Pointer/array CLI arguments, CUDA
+recursion, and GPU thread intrinsics are not supported in this scalar export.
 
 ## NumPy arrays as arguments
 

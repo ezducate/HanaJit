@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hanajit"
 version = "0.23.0"
-description = "LLVM-backed JIT for Python using CPython's own parser, with transparent interpreter fallback, by EZducate (www.ezducate.ai). CPU JIT (stable); GPU kernel execution via f.launch() on CUDA, Level Zero, Vulkan, HIP, and Metal (experimental); WebAssembly and FPGA HLS export."
+description = "LLVM-backed Python JIT with transparent fallback, GPU launch support, self-contained x86-64 executable export, WebAssembly, and FPGA HLS export."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -34,13 +34,14 @@ classifiers = [
 
 keywords = ["jit", "compiler", "llvm", "numpy", "performance", "numba",
             "vectorization", "gpu", "ptx", "simd", "wasm", "webassembly",
-            "spirv", "vulkan", "fpga", "hls"]
+            "spirv", "vulkan", "fpga", "hls", "standalone", "executable"]
 
 [project.urls]
 Homepage = "https://www.ezducate.ai"
 EZducate = "https://www.ezducate.ai"
 GitHub = "https://github.com/ezducate/HanaJit"
 Repository = "https://github.com/ezducate/HanaJit"
+Documentation = "https://github.com/ezducate/HanaJit#readme"
 Issues = "https://github.com/ezducate/HanaJit/issues"
 Changelog = "https://github.com/ezducate/HanaJit/blob/main/CHANGELOG.md"
 
