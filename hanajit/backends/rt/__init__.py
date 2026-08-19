@@ -100,7 +100,8 @@ class DeviceArray:
     def copy_from_host(self, arr):
         """Overwrite device contents from a matching numpy array."""
         self._check_alive()
-        if arr.nbytes != self.nbytes or str(arr.dtype) != self.dtype:
+        if (arr.shape != self.shape or arr.nbytes != self.nbytes
+                or str(arr.dtype) != self.dtype):
             raise UnsupportedError(
                 "copy_from_host: array shape/dtype mismatch")
         self.runtime.sync()   # order after any queued async launches
@@ -114,7 +115,8 @@ class DeviceArray:
         import numpy as np
         if out is None:
             out = np.empty(self.shape, dtype=self.dtype)
-        elif out.nbytes != self.nbytes or str(out.dtype) != self.dtype:
+        elif (out.shape != self.shape or out.nbytes != self.nbytes
+              or str(out.dtype) != self.dtype):
             raise UnsupportedError("to_host: array shape/dtype mismatch")
         self.runtime.sync()
         self.runtime.buf_read(self._impl, out)

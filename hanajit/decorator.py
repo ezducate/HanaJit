@@ -64,6 +64,26 @@ def _get_compiled_ast(pyfunc, rewrite=False):
     return fn, src
 
 
+def _make_codegen_name_ascii(fn_ast):
+    """Give Unicode Python functions an LLVM-addressable internal name.
+
+    LLVM IR can represent a quoted UTF-8 symbol, but llvmlite's MCJIT
+    ``get_function_address`` API encodes lookup names as ASCII.  Keep the
+    public Python function untouched and rename only this fresh compilation
+    AST, including direct self-recursion.
+    """
+    old = fn_ast.name
+    if old.isascii():
+        return fn_ast
+    new = "__hanajit_u_" + old.encode("utf-8").hex()
+    fn_ast.name = new
+    for node in ast.walk(fn_ast):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == old):
+            node.func.id = new
+    return fn_ast
+
+
 _NP_BASE = {"float64": "f64", "int64": "i64", "float32": "f32"}
 _ARR_TO_PTR = {AF64: PF64, AI64: PI64}
 
@@ -197,6 +217,7 @@ class Dispatcher:
 
     def _compile(self, sig):
         fn_ast, src = _get_compiled_ast(self.pyfunc, rewrite=self.rewrite)
+        fn_ast = _make_codegen_name_ascii(fn_ast)
         arg_names = [a.arg for a in fn_ast.args.args]
         if len(arg_names) != len(sig):
             raise UnsupportedError("defaults/varargs/kwargs not supported")
@@ -530,10 +551,11 @@ class Dispatcher:
         proxy.cache, proxy._fast, proxy.modules = (self.cache, self._fast,
                                                    self.modules)
         for name in ("specialize", "inspect_llvm", "inspect_asm",
-                     "inspect_gpu", "inspect_wasm", "export_fpga",
-                     "export_wasm", "launch", "to_device", "synchronize",
-                     "scipy_callable",
-                     "evolve", "evolve_hyper", "narrow"):
+                      "inspect_gpu", "inspect_wasm", "export_fpga",
+                      "export_wasm", "export_executable", "launch",
+                      "to_device", "synchronize",
+                      "scipy_callable",
+                      "evolve", "evolve_hyper", "narrow"):
             setattr(proxy, name, getattr(self, name))
         proxy.__wrapped__ = self.pyfunc
         proxy.__name__ = self.pyfunc.__name__
@@ -568,6 +590,8 @@ class Dispatcher:
         return str(self.modules[sig])
 
     def inspect_asm(self, sig=None):
+        if not self.modules:
+            raise RuntimeError("call the function once first")
         sig = sig or next(iter(self.modules))
         return cpu_backend.emit_assembly(self.modules[sig])
 
@@ -633,6 +657,29 @@ class Dispatcher:
         return wasm_backend.export_wasm(
             module, self.pyfunc.__name__, path_prefix, bits=bits,
             sig=sig, ret=ret_type)
+
+    def export_executable(self, output, sig=None, cuda="off",
+                          cuda_arch=None):
+        """Export a standalone x86-64 command-line executable.
+
+        The declared scalar signature becomes positional CLI arguments and
+        the return value is printed to stdout.  The executable has no Python
+        or HanaJit runtime dependency.  ``cuda`` may be ``"off"``,
+        ``"optional"`` (embedded PTX with CPU fallback), or ``"required"``.
+
+        Returns ``ExecutableExport(executable, object, source, build, ptx)``;
+        ``executable`` is None when no host C linker is installed, in which
+        case the exact build script and all inputs are still written.
+        """
+        from .backends import executable as executable_backend
+        sig = self._export_sig(sig)
+        module, fn_ast, arg_types, var_types, ret_type = \
+            self._typed_kernel(sig)
+        return executable_backend.export_executable(
+            module, fn_ast, arg_types, var_types, sig, ret_type, output,
+            cuda=cuda,
+            fastmath=self.fastmath, reduce_reassoc=self.reduce_reassoc,
+            cuda_arch=(cuda_arch if cuda_arch is not None else self.gpu_arch))
 
     # ---- GPU execution ----
     def launch(self, *args, grid=None, block=None, sync=True):

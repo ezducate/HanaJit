@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Added `f.export_executable(output, sig=None, cuda="off")` for standalone
+  x86-64 command-line programs on Windows, Linux, and Intel macOS. Scalar
+  `i64`/`f64`/`bool` arguments are parsed from the command line and the result
+  is printed to stdout; no Python or HanaJit runtime is present in the output.
+- `cuda="optional"` embeds PTX and dynamically uses the NVIDIA driver when
+  available, with a compiled CPU fallback in the same executable;
+  `cuda="required"` fails clearly instead. The destination does not need the
+  CUDA toolkit or sidecar PTX.
+- Standalone builds auto-detect MSVC (including non-developer Windows shells),
+  Clang, or GCC and always write reproducible C source and build scripts.
+
 ## 0.23.0
 
 **GPU kernels now execute.** `f.launch(*args, grid=, block=)` runs a

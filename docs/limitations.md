@@ -24,6 +24,13 @@ function whose source `inspect` can't retrieve (REPL).
 
 ## Safety
 
+Standalone executable export is currently limited to scalar `i64`/`f64`/`bool`
+signatures on x86-64 Windows, Linux, and Intel macOS. Pointer/array command-line
+interfaces are not yet defined. CUDA standalone mode runs one scalar invocation,
+does not support recursion or GPU thread intrinsics, and is unavailable on macOS.
+The output needs no Python or CUDA toolkit; optional/required CUDA execution does
+require an installed NVIDIA driver.
+
 - **Distinct array/pointer arguments are assumed non-overlapping**
   (`noalias`, same contract as numba). Passing overlapping views as two
   separate arguments of a kernel that writes through one of them is

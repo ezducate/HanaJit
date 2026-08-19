@@ -28,8 +28,28 @@ Decorator returning a JIT-dispatching callable.
 | `f.inspect_gpu()` | `(vendor, device_code, native)` after a GPU-target compile. `native=True` means real PTX/GCN/SPIR-V; `False` means annotated IR or MSL source. |
 | `f.inspect_wasm(sig=None, bits=32)` | `(text, native)` — WebAssembly assembly for a specialization (`native=False` → retargeted IR). |
 | `f.export_wasm(prefix, sig=None, bits=32)` | Writes `<prefix>.ll` (wasm-retargeted IR), `.s` (wasm assembly), `.mjs` (JS loader), `.build.sh` (clang command), and `.wasm` when clang is on PATH. Returns a `WasmExport` namedtuple of paths. |
+| `f.export_executable(output, sig=None, cuda="off", cuda_arch=None)` | Builds a standalone x86-64 scalar CLI and returns an `ExecutableExport` namedtuple of paths. |
 | `f.export_fpga(prefix, sig=None, part=None, clock_ns=None)` | Writes `<prefix>.ll`, `<prefix>_hls.cpp` (synthesizable HLS C++ with pragmas), `<prefix>_tb.cpp` (csim testbench), and `<prefix>_hls.tcl` (runnable Vitis script). Returns an `FpgaExport` namedtuple; `cpp`/`tb` are `None` outside the transpilable subset. |
 | `f.cache` / `f._fast` / `f.modules` | Introspection dicts: abstract-signature → callable, Python-type-tuple → callable, signature → IR module. |
+
+## `f.export_executable(...)`
+
+`f.export_executable(output, sig=None, cuda="off", cuda_arch=None)` builds a
+standalone x86-64 CLI for a scalar signature and returns
+`ExecutableExport(executable, object, source, build, ptx)`.
+
+The executable accepts one positional argument per declared scalar type
+(`i64`, `f64`, or `bool`, with booleans written as `0`/`1`) and prints the
+scalar result. The static compiler subset is authoritative: dynamic calls such
+as `eval`, imports, objects, and unsupported syntax raise `UnsupportedError`
+instead of being bundled with an interpreter.
+
+The target is x86-64 Windows/Linux/Intel macOS. MSVC, Clang, or GCC is required
+only on the build machine; set `HANAJIT_CC` to override compiler discovery.
+The destination needs no Python, HanaJit, or CUDA toolkit. CUDA modes dynamically
+load `nvcuda.dll`/`libcuda.so.1`; `optional` falls back to CPU and `required`
+exits with status 70 when CUDA is unavailable. Pointer/array CLI arguments and
+CUDA recursion are not supported in this first version.
 
 ## NumPy arrays as arguments
 
@@ -127,6 +147,7 @@ copies. Not available for disk-cache-hit specializations (no IR retained).
 - `HANAJIT_VULKAN_LOCAL_SIZE` — Vulkan workgroup size `"x,y,z"`
   (default `64,1,1`); `block_dim()` folds to its x component.
 - `HANAJIT_WASM_CLANG` — clang executable used to link `.wasm` exports.
+- `HANAJIT_CC` — C11 compiler command used to build standalone executables.
 - `HANAJIT_HIP_CLANG` — clang used to assemble GCN for HIP launches.
 - `HANAJIT_LIBDEVICE` — path to libdevice.10.bc for CUDA transcendental
   math (auto-discovered from CUDA toolkits and pip nvidia wheels).

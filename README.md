@@ -472,6 +472,57 @@ CUDA transcendentals (sin/exp/log/pow) link NVIDIA's libdevice automatically whe
 
 ---
 
+## Standalone x86-64 executables
+
+`export_executable` turns a scalar `@jit` function into a native command-line
+program. The output is a single application file and does not import or embed
+Python or HanaJit. Positional command-line arguments follow the declared
+`i64`/`f64`/`bool` signature; the return value is printed to stdout.
+
+```python
+from hanajit import jit
+
+@jit(signature="f64, i64")
+def compound(x, years):
+    for _ in range(years):
+        x *= 1.05
+    return x
+
+out = compound.export_executable(
+    "compound.exe",       # use "compound" on Linux/macOS
+    cuda="optional",      # "off", "optional", or "required"
+)
+print(out.executable)
+```
+
+```bash
+compound.exe 1000 10
+```
+
+- **`cuda="off"`** creates a CPU-only executable.
+- **`cuda="optional"`** embeds a one-thread PTX version, dynamically loads
+  the NVIDIA driver when present, and otherwise runs the embedded CPU kernel.
+- **`cuda="required"`** embeds PTX but exits with status 70 if CUDA cannot
+  run. No CUDA toolkit is needed on the destination machine; only the NVIDIA
+  driver is required.
+- The exporter targets x86-64 Windows, Linux, and Intel macOS. CUDA modes are
+  unavailable on macOS. Apple Silicon and 32-bit x86 are outside this export's
+  contract.
+- The current CLI contract is scalar-only; pointer and NumPy-array signatures
+  are rejected. CUDA mode proves deployment portability but is generally not a
+  speedup for one tiny scalar invocation because GPU startup dominates.
+- A host C11 toolchain is needed at build time: MSVC is auto-discovered on
+  Windows; Clang/GCC are used on Unix. `HANAJIT_CC` overrides discovery. If no
+  compiler is available, HanaJit writes the self-contained C source and exact
+  `.build.bat`/`.build.sh`; install a compiler and run that script.
+
+The returned `ExecutableExport(executable, object, source, build, ptx)` keeps
+all build artifacts available for inspection. At runtime the executable uses
+only normal operating-system libraries and, in CUDA mode, the installed NVIDIA
+driver.
+
+---
+
 ## WebAssembly export
 
 `export_wasm` retargets the same typed LLVM IR to `wasm32` (or `wasm64`) and writes everything needed to run the kernel in a browser or Node:

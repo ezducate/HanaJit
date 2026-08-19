@@ -62,11 +62,12 @@ def add_fastcall_wrapper(module, kernel, arg_types, ret_type, nogil=False):
     exc_type = ir.GlobalVariable(module, I8P, "PyExc_TypeError")
 
     msg_text = f"{kernel.name}() takes {len(arg_types)} positional arguments\0"
-    msg = ir.GlobalVariable(module, ir.ArrayType(ir.IntType(8), len(msg_text)),
+    msg_bytes = msg_text.encode("utf-8")
+    msg = ir.GlobalVariable(module, ir.ArrayType(ir.IntType(8), len(msg_bytes)),
                             name=wname + ".argmsg")
     msg.global_constant = True
     msg.initializer = ir.Constant(msg.type.pointee,
-                                  bytearray(msg_text.encode()))
+                                  bytearray(msg_bytes))
 
     entry = w.append_basic_block("entry")
     bad = w.append_basic_block("badargs")
